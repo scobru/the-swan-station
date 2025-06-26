@@ -1,0 +1,20 @@
+{
+  "name": "the-swan",
+  "version": "1.0.0",
+  "description": "A multiplayer simulation of the Swan Station from ABC's Lost TV series",
+  "main": "src/script.js",
+  "scripts": {
+    "start": "serve .",
+    "dev": "serve . -p 3000"
+  },
+  "dependencies": {
+    "gun": "^0.2020.1239",
+    "identicon.js": "^2.3.3",
+    "md5": "^2.3.0"
+  },
+  "devDependencies": {
+    "serve": "^14.2.1"
+  },
+  "author": "",
+  "license": "MIT"
+} 
