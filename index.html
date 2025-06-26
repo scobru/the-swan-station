@@ -17,6 +17,7 @@
       <nav id="nav-menu">
         <div class="nav-item active" data-screen="home">Home</div>
         <div class="nav-item" data-screen="about">About</div>
+        <div class="nav-item" data-screen="history">History</div>
         <div class="nav-item" data-screen="faq">FAQ</div>
         <div class="nav-item" data-screen="profile">Profile</div>
         <div class="sound-toggle">
@@ -79,12 +80,6 @@
               <div>Consecutive Resets: <span id="consecutive-resets">0</span></div>
             </div>
 
-            <!-- Add Station History Panel -->
-            <div id="station-history" class="panel">
-              <h3>Station History</h3>
-              <div id="station-log-messages" class="scrollable-log"></div>
-            </div>
-
             <div id="chat-container" class="panel">
               <h3>Communication</h3>
               <div id="chat-messages"></div>
@@ -106,6 +101,14 @@
           <p>The DHARMA Initiative had originally designed the station to be a laboratory to study and manipulate the "unique electromagnetic fluctuations emanating from this sector of the Island," as described by Pierre Chang in the Swan orientation video. However, after the "incident", they enacted a special protocol to prevent a potential global catastrophe.</p>
           <p>Two individuals manning the station took shifts (entering numbers into a computer) every 108 minutes. These two operators lived and worked at the station, continuing this task for shifts lasting 540 days.</p>
           <a href="https://lostpedia.fandom.com/wiki/The_Swan" target="_blank" class="external-link">Read more on Lostpedia →</a>
+        </div>
+      </div>
+
+      <!-- Add History Screen -->
+      <div id="history-screen" class="screen" style="display: none;">
+        <h2>Station History</h2>
+        <div class="history-content">
+          <div id="station-log-messages" class="scrollable-log"></div>
         </div>
       </div>
 

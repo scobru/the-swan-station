@@ -72,6 +72,7 @@ const elements = {
         about: document.getElementById('about-screen'),
         faq: document.getElementById('faq-screen'),
         profile: document.getElementById('profile-screen'),
+        history: document.getElementById('history-screen'),
         systemFailure: document.getElementById('system-failure'),
         lockdown: document.getElementById('lockdown')
     },
@@ -112,6 +113,9 @@ const elements = {
         points: document.getElementById('profile-points'),
         resets: document.getElementById('profile-resets'),
         time: document.getElementById('profile-time')
+    },
+    history: {
+        container: document.getElementById('station-log-messages')
     }
 };
 
@@ -151,7 +155,7 @@ function preload(images, callback) {
 
 // Modify showScreen function to use proper screen IDs
 function showScreen(screenName) {
-    const validScreens = ['auth', 'game', 'about', 'faq', 'profile', 'systemFailure', 'lockdown'];
+    const validScreens = ['auth', 'game', 'about', 'faq', 'profile', 'history', 'systemFailure', 'lockdown'];
     
     if (!validScreens.includes(screenName)) {
         console.warn(`Invalid screen name: "${screenName}"`);
@@ -170,6 +174,11 @@ function showScreen(screenName) {
     if (targetScreen) {
         targetScreen.style.display = 'flex';
         currentScreen = screenName;
+        
+        // Load history if showing history screen
+        if (screenName === 'history') {
+            loadHistory();
+        }
     } else {
         console.warn(`Screen "${screenName}" not found`);
         // Show auth screen as fallback
@@ -266,13 +275,30 @@ function submitCode() {
     const expectedCode = "4 8 15 16 23 42";
     
     if (code === expectedCode) {
+        // Prevent multiple submissions while processing
+        codeInput.disabled = true;
+        
         // Reset timer and clear input
-        resetTimer();
+        const newEndTime = Date.now() + (108 * 60 * 1000); // 108 minutes in milliseconds
+        updateTimer(newEndTime);
         codeInput.value = '';
         
         // Log successful reset
         addSystemLog('Code accepted. Timer reset.', LOG_TYPES.SUCCESS);
         addStationHistory('Code accepted and timer reset successfully.', HISTORY_TYPES.RESET);
+        
+        // Update stats once
+        const stats = {
+            endTime: newEndTime,
+            lastResetBy: elements.game.userDisplay.textContent,
+            points: parseInt(elements.game.userPoints.textContent) + 10
+        };
+        updateGameStats(stats);
+        
+        // Re-enable input after a short delay
+        setTimeout(() => {
+            codeInput.disabled = false;
+        }, 1000);
     } else {
         // Log failed attempt
         addSystemLog('Invalid code. Please try again.', LOG_TYPES.ERROR);
@@ -369,29 +395,23 @@ const HISTORY_TYPES = {
 
 // Add function to log station history
 function addStationHistory(message, type = HISTORY_TYPES.SYSTEM) {
-  const logContainer = document.getElementById('station-log-messages');
-  if (!logContainer) return;
-
-  const entry = document.createElement('div');
-  entry.className = `station-log-entry ${type}`;
-  
-  const timestamp = new Date().toLocaleTimeString();
-  entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
-  
-  logContainer.insertBefore(entry, logContainer.firstChild);
-  
-  // Store in GUN.js for persistence
-  gun.get('station-history').set({
-    timestamp: Date.now(),
-    message: message,
-    type: type,
-    user: user.is?.alias || 'System'
-  });
-  
-  // Keep only last 100 entries in DOM
-  while (logContainer.children.length > 100) {
-    logContainer.removeChild(logContainer.lastChild);
-  }
+    // Don't log test mode events unless we're actually in test mode
+    if (type === HISTORY_TYPES.TEST && !window.testMode) return;
+    
+    const entry = {
+        message,
+        type,
+        timestamp: Date.now(),
+        user: elements.game.userDisplay ? elements.game.userDisplay.textContent : null
+    };
+    
+    // Save to GUN
+    gun.get('station-history').set(entry);
+    
+    // Only update DOM if we're on the history screen
+    if (currentScreen === 'history') {
+        loadHistory();
+    }
 }
 
 // Authentication
@@ -909,8 +929,6 @@ function addSystemLog(message, type = LOG_TYPES.INFO) {
   }
 }
 
-
-
 // Add test button to game screen
 function addTestButton() {
   const button = document.createElement('button');
@@ -927,4 +945,162 @@ function addTestButton() {
     addStationHistory('Test mode activated: Timer set to 4 minutes', HISTORY_TYPES.SYSTEM);
   };
   document.body.appendChild(button);
+}
+
+// Update loadHistory function to handle loading state properly
+function loadHistory() {
+    if (currentScreen !== 'history') return;
+    
+    const historyContainer = document.getElementById('station-log-messages');
+    if (!historyContainer) return;
+    
+    // Clear existing history
+    historyContainer.innerHTML = '';
+    
+    // Add loading indicator
+    const loading = document.createElement('div');
+    loading.className = 'loading-indicator';
+    loading.textContent = 'Loading history...';
+    historyContainer.appendChild(loading);
+    
+    let count = 0;
+    const limit = 50; // Limit to 50 entries at a time
+    const entries = [];
+    
+    // Load history from GUN with limit
+    gun.get('station-history').map().on((entry, id) => {
+        if (!entry || count >= limit) return;
+        
+        // Store entries to sort later
+        entries.push({
+            ...entry,
+            id,
+            timestamp: entry.timestamp || Date.now()
+        });
+        count++;
+        
+        // Once we have all entries, sort and display them
+        if (count === limit || (count > 0 && count === entries.length)) {
+            // Sort by timestamp, newest first
+            entries.sort((a, b) => b.timestamp - a.timestamp);
+            
+            // Remove loading indicator
+            loading.remove();
+            
+            // Display entries
+            entries.forEach(entry => {
+                const div = document.createElement('div');
+                div.className = `history-entry ${entry.type || ''}`;
+                div.innerHTML = `
+                    <span class="timestamp">${new Date(entry.timestamp).toLocaleString()}</span>
+                    <span class="message">${entry.message}</span>
+                    ${entry.user ? `<span class="user">${entry.user}</span>` : ''}
+                `;
+                historyContainer.appendChild(div);
+            });
+            
+            // Add load more button if we hit the limit
+            if (count >= limit) {
+                const loadMore = document.createElement('button');
+                loadMore.className = 'load-more-btn';
+                loadMore.textContent = 'Load More';
+                loadMore.onclick = () => loadMoreHistory(count);
+                historyContainer.appendChild(loadMore);
+            }
+            
+            // If no entries found, show message
+            if (entries.length === 0) {
+                const noEntries = document.createElement('div');
+                noEntries.className = 'no-entries';
+                noEntries.textContent = 'No history entries found.';
+                historyContainer.appendChild(noEntries);
+            }
+        }
+    });
+    
+    // Add error handling timeout
+    setTimeout(() => {
+        if (historyContainer.querySelector('.loading-indicator')) {
+            loading.textContent = 'No history entries found.';
+        }
+    }, 5000); // Show error after 5 seconds if no data received
+}
+
+// Update loadMoreHistory function to match new pattern
+function loadMoreHistory(offset) {
+    const historyContainer = document.getElementById('station-log-messages');
+    if (!historyContainer) return;
+    
+    const limit = 50;
+    let count = 0;
+    const entries = [];
+    
+    // Remove existing load more button
+    const oldButton = historyContainer.querySelector('.load-more-btn');
+    if (oldButton) oldButton.remove();
+    
+    // Add loading indicator
+    const loading = document.createElement('div');
+    loading.className = 'loading-indicator';
+    loading.textContent = 'Loading more...';
+    historyContainer.appendChild(loading);
+    
+    gun.get('station-history').map().on((entry, id) => {
+        if (!entry) return;
+        count++;
+        
+        // Skip entries we already have
+        if (count <= offset) return;
+        
+        // Store entries to sort later
+        entries.push({
+            ...entry,
+            id,
+            timestamp: entry.timestamp || Date.now()
+        });
+        
+        // Once we have enough new entries, display them
+        if (entries.length >= limit) {
+            displayMoreEntries();
+        }
+    });
+    
+    // Add error handling timeout
+    setTimeout(() => {
+        if (entries.length > 0) {
+            displayMoreEntries();
+        } else if (historyContainer.querySelector('.loading-indicator')) {
+            loading.textContent = 'No more entries found.';
+            setTimeout(() => loading.remove(), 2000);
+        }
+    }, 5000);
+    
+    function displayMoreEntries() {
+        // Sort by timestamp, newest first
+        entries.sort((a, b) => b.timestamp - a.timestamp);
+        
+        // Remove loading indicator
+        loading.remove();
+        
+        // Display entries
+        entries.forEach(entry => {
+            const div = document.createElement('div');
+            div.className = `history-entry ${entry.type || ''}`;
+            div.innerHTML = `
+                <span class="timestamp">${new Date(entry.timestamp).toLocaleString()}</span>
+                <span class="message">${entry.message}</span>
+                ${entry.user ? `<span class="user">${entry.user}</span>` : ''}
+            `;
+            historyContainer.appendChild(div);
+        });
+        
+        // Add load more button if we have more entries
+        if (entries.length >= limit) {
+            const loadMore = document.createElement('button');
+            loadMore.className = 'load-more-btn';
+            loadMore.textContent = 'Load More';
+            loadMore.onclick = () => loadMoreHistory(offset + entries.length);
+            historyContainer.appendChild(loadMore);
+        }
+    }
 }

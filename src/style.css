@@ -608,3 +608,113 @@ button:hover {
 .production #test-timer-button {
   display: none;
 }
+
+/* History Screen */
+#history-screen {
+    padding: 2rem;
+    color: #00ff00;
+    background-color: #000;
+}
+
+.history-content {
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    background-color: rgba(0, 0, 0, 0.8);
+    border: 1px solid #00ff00;
+    border-radius: 4px;
+    padding: 1rem;
+}
+
+.history-entry {
+    padding: 0.5rem;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.2);
+    font-family: monospace;
+}
+
+.history-entry:last-child {
+    border-bottom: none;
+}
+
+.history-entry .timestamp {
+    color: #666;
+    margin-right: 1rem;
+}
+
+.history-entry .user {
+    color: #0088ff;
+    margin-left: 1rem;
+}
+
+.history-entry.success {
+    color: #00ff00;
+}
+
+.history-entry.error {
+    color: #ff0000;
+}
+
+.history-entry.warning {
+    color: #ffaa00;
+}
+
+.history-entry.test {
+    color: #ff00ff;
+}
+
+.scrollable-log {
+    max-height: 600px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #00ff00 #000;
+}
+
+.scrollable-log::-webkit-scrollbar {
+    width: 8px;
+}
+
+.scrollable-log::-webkit-scrollbar-track {
+    background: #000;
+}
+
+.scrollable-log::-webkit-scrollbar-thumb {
+    background-color: #00ff00;
+    border-radius: 4px;
+}
+
+/* History Screen Loading and Load More */
+.loading-indicator {
+    text-align: center;
+    padding: 1rem;
+    color: #00ff00;
+    font-family: monospace;
+}
+
+.load-more-btn {
+    display: block;
+    width: 100%;
+    padding: 0.5rem;
+    margin-top: 1rem;
+    background: #001100;
+    border: 1px solid #00ff00;
+    color: #00ff00;
+    font-family: monospace;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.load-more-btn:hover {
+    background: #002200;
+}
+
+.load-more-btn:active {
+    background: #003300;
+}
+
+.no-entries {
+    text-align: center;
+    padding: 2rem;
+    color: #666;
+    font-family: monospace;
+    font-style: italic;
+}
