@@ -1,17 +1,30 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-    <link rel="favicon icon" href="assets/favicon.ico" type="image/x-icon" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>THE SWAN</title>
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="src/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
+    <!-- Prevent iOS tap highlight -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <!-- Add iOS icons and splash screens here if needed -->
   </head>
   
   <body>
+    <div id="statsContainer" class="stats-container"></div>
     <div class="container">
       <h1><span>&gt;</span>:</h1>
-      <input type="text" class="input" maxlength="15" />
+      <div id="bigTimer" class="big-timer">108</div>
+      <div class="prompt">
+        >: <input type="text" class="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      </div>
     </div>
+
+    <div class="log-container" id="logContainer"></div>
   
     <script src="src/script.js"></script>
   </body>
