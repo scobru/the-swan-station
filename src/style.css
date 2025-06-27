@@ -718,3 +718,144 @@ button:hover {
     font-family: monospace;
     font-style: italic;
 }
+
+/* Screen Reader Only Content */
+.sr-only {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+/* Focus styles for accessibility */
+*:focus {
+  outline: 2px solid var(--dharma-green);
+  outline-offset: 2px;
+}
+
+.nav-item:focus,
+button:focus,
+input:focus,
+[role="button"]:focus {
+  outline: 2px solid var(--dharma-green);
+  outline-offset: 2px;
+  background: var(--hover-bg);
+}
+
+/* Keyboard navigation for nav items */
+.nav-item[role="button"]:focus,
+.nav-item[role="button"]:hover {
+  cursor: pointer;
+}
+
+/* Statistics as definition list */
+#statistics dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 15px;
+  align-items: center;
+}
+
+#statistics dt {
+  font-weight: normal;
+}
+
+#statistics dd {
+  margin: 0;
+}
+
+/* Profile stats as definition list */
+.profile-stats {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 15px 20px;
+  align-items: center;
+}
+
+.profile-stats dt {
+  font-weight: bold;
+  text-align: right;
+}
+
+.profile-stats dd {
+  margin: 0;
+}
+
+/* Improve form accessibility */
+form label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+form input[required]:invalid {
+  border-color: #ff6b6b;
+}
+
+form input[required]:valid {
+  border-color: var(--dharma-green);
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --dharma-green: #00ff00;
+    --terminal-text-shadow: none;
+  }
+  
+  .nav-item:hover,
+  .nav-item.active {
+    background: #ffffff;
+    color: #000000;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .blink {
+    animation: none;
+  }
+  
+  .shake {
+    animation: none;
+  }
+  
+  * {
+    transition: none !important;
+  }
+}
+
+/* Fix timer display semantics */
+[role="timer"] {
+  font-family: 'DS-Digital', monospace;
+}
+
+/* Improve modal accessibility */
+.modal[aria-modal="true"] {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+}
+
+/* Skip link for keyboard navigation */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 6px;
+  background: var(--terminal-black);
+  color: var(--dharma-green);
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  text-decoration: none;
+  z-index: 1001;
+}
+
+.skip-link:focus {
+  top: 6px;
+}
