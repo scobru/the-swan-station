@@ -29,7 +29,7 @@ const bigTimer = document.getElementById('bigTimer');
 let focusInterval = null;
 let decrementInterval = null;
 let currentUser = null; // Will hold alias, points, level, etc.
-let stats = { failures: 0, worlds: 0, resets: 0 };
+let stats = { failures: 0, resets: 0 };
 // Timer is now fetched from GunDB, not hardcoded.
 document.title = 'SYNCING...';
 
@@ -476,10 +476,6 @@ function showProfile() {
                             <div class="stat-label">SYSTEM FAILURES</div>
                             <div class="stat-value" id="profileFailures">0</div>
                         </div>
-                        <div class="stat-item">
-                            <div class="stat-label">WORLDS CREATED</div>
-                            <div class="stat-value" id="profileWorlds">0</div>
-                        </div>
                     </div>
                 </div>
                 <div class="profile-actions">
@@ -503,7 +499,6 @@ function showProfile() {
                 document.getElementById('profileLocation').textContent = profile.location || 'NOT SET';
                 document.getElementById('profileResets').textContent = profile.resets || 0;
                 document.getElementById('profileFailures').textContent = profile.failures || 0;
-                document.getElementById('profileWorlds').textContent = profile.worlds || 0;
                 
                 // Genera e imposta l'avatar
                 const avatar = generateAvatar(user.is.pub);
@@ -591,10 +586,6 @@ function showGlobalStats() {
                     <div class="stat-value">${stats.failures}</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-label">WORLDS CREATED</div>
-                    <div class="stat-value">${stats.worlds}</div>
-                </div>
-                <div class="stat-item">
                     <div class="stat-label">SUCCESSFUL RESETS</div>
                     <div class="stat-value">${stats.resets}</div>
                 </div>
@@ -613,7 +604,6 @@ function triggerSystemFailure() {
         if (currentStats) {
             statsRef.put({
                 failures: (currentStats.failures || 0) + 1,
-                worlds: (currentStats.worlds || 0) + 1,
             });
         }
     });
@@ -913,7 +903,6 @@ function handleScore(success) {
                 ...(profile || {}),
                 resets: (profile?.resets || 0) + (success ? 1 : 0),
                 failures: (profile?.failures || 0) + (success ? 0 : 1),
-                worlds: (profile?.worlds || 0) + (success ? 1 : 0)
             };
             user.get('profile').put(updatedProfile);
         });
