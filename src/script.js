@@ -30,7 +30,7 @@ let focusInterval = null;
 let decrementInterval = null;
 let currentUser = null; // Will hold alias, points, level, etc.
 let stats = { failures: 0, resets: 0 };
-// Timer is now fetched from GunDB, not hardcoded.
+let timer = 108; // Timer value in seconds
 document.title = 'SYNCING...';
 
 // Leveling System
@@ -40,6 +40,266 @@ const levels = {
     15: 2625, 16: 3000, 17: 3400, 18: 3825, 19: 4275, 20: 4750,
     21: 5250, 22: 5775, 23: 6325, 24: 6900, 25: 7500
 };
+
+// Vintage Terminal Functions
+function createVintageTerminal() {
+    const vintageTerminal = document.createElement('div');
+    vintageTerminal.className = 'vintage-terminal';
+    vintageTerminal.id = 'vintageTerminal';
+    
+    vintageTerminal.innerHTML = `
+        <div class="flip-clock" id="flipClock">
+            <div class="flip-number">
+                <div class="flip-digit" id="minutes-tens">1</div>
+            </div>
+            <div class="flip-number">
+                <div class="flip-digit" id="minutes-ones">0</div>
+            </div>
+            <div class="flip-separator">
+                <div class="flip-dot"></div>
+                <div class="flip-dot"></div>
+            </div>
+            <div class="flip-number">
+                <div class="flip-digit" id="seconds-tens">8</div>
+            </div>
+            <div class="flip-number">
+                <div class="flip-digit" id="seconds-ones">0</div>
+            </div>
+        </div>
+        
+        <div class="crt-screen">
+            <div class="crt-content" id="crtContent">
+                <div>> DHARMA INITIATIVE STATION 3 - THE SWAN</div>
+                <div>> SYSTEM STATUS: OPERATIONAL</div>
+                <div>> ELECTROMAGNETIC ANOMALY DETECTED</div>
+                <div>> </div>
+                <div>> PROTOCOL: ENTER CODE EVERY 108 MINUTES</div>
+                <div>> FAILURE TO COMPLY WILL RESULT IN SYSTEM FAILURE</div>
+                <div>> </div>
+                <div>> CURRENT OPERATOR: <span id="crtOperator">UNKNOWN</span></div>
+                <div>> LEVEL: <span id="crtLevel">--</span> | POINTS: <span id="crtPoints">--</span></div>
+                <div>> </div>
+                <div id="crtInputLine">> ENTER CODE: <span id="crtInput"></span><span class="crt-cursor"></span></div>
+            </div>
+        </div>
+        
+        <div class="vintage-overlay"></div>
+    `;
+    
+    return vintageTerminal;
+}
+
+function updateFlipClock(totalMinutes) {
+    const minutes = Math.floor(totalMinutes);
+    const seconds = 0; // Per semplicità, mostriamo solo i minuti
+    
+    const minutesTens = Math.floor(minutes / 10);
+    const minutesOnes = minutes % 10;
+    const secondsTens = Math.floor(seconds / 10);
+    const secondsOnes = seconds % 10;
+    
+    // Aggiorna i flip numbers con animazione
+    updateFlipDigit('minutes-tens', minutesTens);
+    updateFlipDigit('minutes-ones', minutesOnes);
+    updateFlipDigit('seconds-tens', secondsTens);
+    updateFlipDigit('seconds-ones', secondsOnes);
+    
+    // Aggiorna anche il display dell'input per riflettere lo stato corrente
+    updateCRTInputDisplay();
+}
+
+function updateFlipDigit(elementId, newValue) {
+    const element = document.getElementById(elementId);
+    if (element && element.textContent !== newValue.toString()) {
+        // Animazione flip
+        element.style.transform = 'rotateX(90deg)';
+        setTimeout(() => {
+            element.textContent = newValue;
+            element.style.transform = 'rotateX(0deg)';
+        }, 150);
+    }
+}
+
+function updateCRTContent() {
+    if (!currentUser) return;
+    
+    const crtOperator = document.getElementById('crtOperator');
+    const crtLevel = document.getElementById('crtLevel');
+    const crtPoints = document.getElementById('crtPoints');
+    
+    if (crtOperator) crtOperator.textContent = currentUser.alias || 'UNKNOWN';
+    if (crtLevel) crtLevel.textContent = currentUser.level || '--';
+    if (crtPoints) crtPoints.textContent = currentUser.points || '--';
+}
+
+let crtInputValue = '';
+
+function toggleVintageMode() {
+    // Disattiva modalità vintage
+    const container = document.querySelector('.container');
+    const body = document.body;
+    const inputElement = document.querySelector('.input');
+    const promptElement = document.querySelector('.prompt');
+    
+    container.classList.remove('vintage-mode');
+    
+    // Mostra il timer normale e l'input box
+    const bigTimer = document.getElementById('bigTimer');
+    if (bigTimer) bigTimer.style.display = 'block';
+    if (inputElement) inputElement.style.display = 'block';
+    if (promptElement) promptElement.style.display = 'block';
+    
+    // Rimuovi i listener dell'input virtuale
+    document.removeEventListener('keydown', handleCRTInput);
+    crtInputValue = '';
+    
+    addLog('Standard terminal mode activated', 'info');
+}
+
+function initializeCRTInput() {
+    crtInputValue = '';
+    
+    // Aspetta un momento per assicurarsi che il DOM sia aggiornato
+    setTimeout(() => {
+        updateCRTInputDisplay();
+        
+        // Rimuovi eventuali listener precedenti
+        document.removeEventListener('keydown', handleCRTInput);
+        // Aggiungi il nuovo listener
+        document.addEventListener('keydown', handleCRTInput);
+    }, 100);
+}
+
+function updateCRTInputDisplay() {
+    const crtInputLine = document.getElementById('crtInputLine');
+    if (crtInputLine) {
+        if (timer > 240) {
+            // Input bloccato - mostra messaggio
+            crtInputLine.innerHTML = `> INPUT LOCKED - AVAILABLE IN LAST 4 MINUTES ONLY`;
+        } else {
+            // Input disponibile - mostra il cursore
+            const displayValue = crtInputValue || '';
+            crtInputLine.innerHTML = `> ENTER CODE: <span id="crtInput">${displayValue}</span><span class="crt-cursor"></span>`;
+        }
+    }
+}
+
+function handleCRTInput(event) {
+    // Verifica se siamo in modalità vintage
+    if (!currentUser) return;
+    
+    // Se c'è un overlay aperto, non gestire l'input
+    if (document.querySelector('.overlay')) return;
+
+    // Gestisci i tasti specifici
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        processCRTInput();
+        return;
+    }
+    
+    if (event.key === 'Backspace') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (crtInputValue.length > 0) {
+            crtInputValue = crtInputValue.slice(0, -1);
+            updateCRTInputDisplay();
+            typeSound();
+        }
+        return;
+    }
+    
+    // Accetta numeri e spazi
+    if (event.key.length === 1 && /[0-9\s]/.test(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        
+        // Max 15 caratteri (per "4 8 15 16 23 42")
+        if (crtInputValue.length < 15) {
+            crtInputValue += event.key;
+            updateCRTInputDisplay();
+            typeSound();
+            // Debug temporaneo per vedere la lunghezza
+            console.log(`Caratteri: ${crtInputValue.length}/15 - "${crtInputValue}"`);
+        } else {
+            console.log(`Limite raggiunto! Lunghezza: ${crtInputValue.length}`);
+        }
+        return;
+    }
+}
+
+function processCRTInput() {
+    const inputValue = crtInputValue.trim();
+    
+    if (inputValue === '4 8 15 16 23 42') {
+        updateTimer(108, 'code_correct');
+        
+        // Increment successful resets stat
+        statsRef.once(currentStats => {
+            if (currentStats) {
+                statsRef.put({ resets: (currentStats.resets || 0) + 1 });
+            }
+        });
+
+        // Update user's personal points and streak
+        user.get('profile').once(profile => {
+            let pointsToAdd = 1;
+            const newStreak = (profile.resetStreak || 0) + 1;
+
+            // Check if user was first to reset
+            timerRef.once(timerData => {
+                if (timerData.updatedBy !== currentUser.alias) {
+                    pointsToAdd += 2; // +2 for being first
+                    addLog('First to reset! +2 bonus points.', 'success');
+                }
+
+                if (newStreak % 4 === 0 && newStreak > 0) {
+                    pointsToAdd += 1; // +1 bonus for 4-in-a-row streak
+                    addLog('Reset streak x4! +1 bonus point.', 'success');
+                }
+                
+                const newPoints = (profile.points || 0) + pointsToAdd;
+                const newLevel = getLevelFromPoints(newPoints);
+
+                if (newLevel > profile.level) {
+                    addLog(`LEVEL UP! You are now Level ${newLevel}.`, 'success');
+                }
+
+                const newProfile = {
+                    points: newPoints,
+                    level: newLevel,
+                    resetStreak: newStreak
+                };
+                // Update user's private profile
+                user.get('profile').put(newProfile);
+
+                // Update the public leaderboard with public data
+                gun.get('leaderboard').get(currentUser.alias).put({
+                    points: newPoints,
+                    level: newLevel
+                });
+            });
+        });
+
+        crtInputValue = '';
+        updateCRTInputDisplay();
+        siren.pause();
+        siren.currentTime = 0;
+        reset.play().catch(() => {});
+        addLog('Numbers entered correctly. Timer reset.', 'success');
+    } else if (inputValue !== '') {
+        addLog('Incorrect code sequence. Protocol penalty initiated.', 'warning');
+        updateTimer(4, 'code_incorrect'); // Set timer to 4 as penalty
+        
+        // Reset the user's streak on incorrect code
+        user.get('profile').put({ resetStreak: 0 });
+        
+        crtInputValue = '';
+        updateCRTInputDisplay();
+        siren.play().catch(() => {});
+    }
+}
 
 function getLevelFromPoints(points) {
     let level = 1;
@@ -95,6 +355,8 @@ function startApp(alias) {
             currentUser.points = profile.points;
             currentUser.level = getLevelFromPoints(profile.points);
             if (stats) updateStatsUI(stats);
+            // Aggiorna il contenuto CRT se in modalità vintage
+            updateCRTContent();
         }
     });
     
@@ -102,6 +364,9 @@ function startApp(alias) {
     document.querySelector('.container').style.display = 'flex';
 
     focusInterval = setInterval(() => {
+        // Non fare focus se siamo in modalità vintage o se c'è un overlay aperto
+        if (document.querySelector('.overlay')) return;
+        
         if (document.activeElement.tagName !== 'INPUT' || document.activeElement === input) {
             input.focus();
         }
@@ -263,40 +528,27 @@ function typeSound() {
     buttonSounds[randomNumber].play().catch(() => {});
 }
 
-// Function to update timer
+// Modifica la funzione updateTimer per supportare il flip clock
 function updateTimer(newValue, reason = '') {
-    console.log('Updating timer to:', newValue);
-    timerRef.put({
-        value: newValue,
-        lastUpdate: Date.now(),
-        updatedBy: currentUser ? currentUser.alias : 'UNKNOWN',
-        reason: reason
-    });
-}
-
-// Setup main timer listener to react to any change
-timerRef.on((data) => {
-    if (data && typeof data.value === 'number') {
-        document.title = data.value;
-        bigTimer.textContent = data.value; // Update the big timer display
-        
-        let updateMessage = `Timer updated to: ${data.value}`;
-        if (data.updatedBy) {
-            updateMessage += ` by ${data.updatedBy}`;
-        }
-        addLog(updateMessage);
-        
-        if (data.value <= 4) {
-            siren.play().catch(() => {});
-            addLog('WARNING: System failure imminent!', 'warning');
-        }
-        
-        if (data.value > 4) {
-            siren.pause();
-            siren.currentTime = 0;
-        }
+    const oldValue = timerRef.get('value');
+    timerRef.put({ value: newValue, lastUpdate: Date.now() });
+    
+    // Log dell'aggiornamento del timer
+    if (reason) {
+        addLog(`Timer updated to ${newValue} (${reason})`, 'info');
     }
-});
+    
+    // Aggiorna la history se è un evento importante
+    if (reason === 'button_press' || reason === 'system_failure') {
+        historyRef.get(Date.now().toString()).put({
+            timestamp: Date.now(),
+            operator: currentUser ? currentUser.alias : 'SYSTEM',
+            action: reason === 'button_press' ? 
+                `Reset timer to ${newValue}` : 
+                `System failure - timer set to ${newValue}`
+        });
+    }
+}
 
 // Input handler
 input.onkeydown = (event) => {
@@ -306,6 +558,15 @@ input.onkeydown = (event) => {
         if (!document.querySelector('.overlay')) {
             showAuthPrompt();
         }
+        return;
+    }
+
+    // Controlla se siamo negli ultimi 4 minuti prima di permettere qualsiasi input
+    if (timer > 240) {
+        const minutesLeft = Math.floor((timer - 240) / 60);
+        const secondsLeft = (timer - 240) % 60;
+        addLog(`WARNING: Code input is locked. Wait ${minutesLeft}m ${secondsLeft}s before entering the code.`, 'warning');
+        event.preventDefault();
         return;
     }
 
@@ -867,6 +1128,9 @@ function initializeSystem() {
         if (data && typeof data.value === 'number') {
             document.title = data.value;
             bigTimer.textContent = data.value;
+            
+            // Aggiorna il flip clock se in modalità vintage
+            updateFlipClock(data.value);
             
             if (data.value <= 4) {
                 siren.play().catch(() => {});

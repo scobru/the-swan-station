@@ -170,6 +170,16 @@ h1 span {
   color: black;
 }
 
+#vintageBtn {
+  background: linear-gradient(45deg, #003300, #004400);
+  border-color: #00aa00;
+}
+
+#vintageBtn:hover {
+  background: #00aa00;
+  color: black;
+}
+
 .history-button {
   color: #00ff00;
   cursor: pointer;
@@ -1027,4 +1037,271 @@ h1 span {
         width: 100%;
         padding: 15px;
     }
+}
+
+/* Vintage CRT Terminal Styles */
+.vintage-terminal {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: 900px;
+  height: 700px;
+  background: url('../assets/computer_background.png') no-repeat center center;
+  background-size: contain;
+  z-index: 100;
+  margin: 0 !important;
+}
+
+.flip-clock {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  z-index: 10;
+}
+
+.flip-number {
+  width: 80px;
+  height: 120px;
+  background: linear-gradient(45deg, #2a2a2a, #1a1a1a);
+  border: 3px solid #444;
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 
+    inset 0 0 10px rgba(0,0,0,0.5),
+    0 0 20px rgba(0,0,0,0.8);
+}
+
+.flip-number::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #333;
+  z-index: 2;
+}
+
+.flip-digit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Courier New', monospace;
+  font-size: 48px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(255,255,255,0.3);
+  background: linear-gradient(180deg, #f5f5f5 0%, #e0e0e0 50%, #d0d0d0 50%, #c0c0c0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  transition: transform 0.3s ease;
+  transform-style: preserve-3d;
+}
+
+.flip-separator {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 120px;
+  gap: 10px;
+}
+
+.flip-dot {
+  width: 12px;
+  height: 12px;
+  background: #ff4444;
+  border-radius: 50%;
+  box-shadow: 0 0 15px rgba(255, 68, 68, 0.8);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.crt-screen {
+  position: absolute;
+  top: 240px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 480px;
+  height: 320px;
+  background: #001100;
+  border: 4px solid #333;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 
+    inset 0 0 50px rgba(0,255,0,0.1),
+    0 0 30px rgba(0,0,0,0.8);
+}
+
+.crt-screen::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,255,0,0.03) 2px,
+      rgba(0,255,0,0.03) 4px
+    );
+  pointer-events: none;
+  z-index: 10;
+}
+
+.crt-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 20px;
+  color: #00ff00;
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  line-height: 1.4;
+  overflow: hidden;
+  animation: textGlow 3s ease-in-out infinite alternate;
+}
+
+@keyframes textGlow {
+  from { text-shadow: 0 0 5px rgba(0,255,0,0.5); }
+  to { text-shadow: 0 0 15px rgba(0,255,0,0.8), 0 0 25px rgba(0,255,0,0.4); }
+}
+
+.crt-cursor {
+  display: inline-block;
+  width: 12px;
+  height: 20px;
+  background: #00ff00;
+  animation: blink 1s infinite;
+  margin-left: 2px;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Integrazione con container esistente */
+.container.vintage-mode {
+  background: transparent;
+  position: relative;
+  z-index: 5;
+}
+
+.container.vintage-mode .big-timer {
+  display: none; /* Nasconde il timer normale quando è attiva la modalità vintage */
+}
+
+.container.vintage-mode .prompt {
+  display: none !important;
+}
+
+/* Stili per gli sprites */
+.sprite {
+  background: url('../assets/sprites.png') no-repeat;
+  display: inline-block;
+}
+
+.dharma-logo-small {
+  width: 32px;
+  height: 32px;
+  background-position: 0 0; /* Posizione da aggiustare in base agli sprites */
+}
+
+/* Effetti vintage aggiuntivi */
+.vintage-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.3) 100%),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.1) 2px,
+      rgba(0,0,0,0.1) 4px
+    );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Responsive per modalità vintage */
+@media screen and (max-width: 1000px) {
+  .vintage-terminal {
+    width: 95vw;
+    height: 95vh;
+    max-width: 900px;
+    max-height: 700px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  
+  .flip-clock {
+    top: 60px;
+    gap: 5px;
+  }
+  
+  .flip-number {
+    width: 60px;
+    height: 90px;
+  }
+  
+  .flip-digit {
+    font-size: 36px;
+  }
+  
+  .crt-screen {
+    top: 180px;
+    width: 85%;
+    height: 60%;
+    max-width: 520px;
+    max-height: 370px;
+  }
+  
+  .crt-content {
+    font-size: 14px;
+    padding: 15px;
+  }
+}
+
+/* Stili per l'input CRT */
+#crtInput {
+  color: #00ff00;
+  background: rgba(0, 255, 0, 0.1);
+  padding: 2px 4px;
+  border-radius: 2px;
+  min-width: 150px;
+  display: inline-block;
+  font-family: 'VT323', monospace;
+}
+
+#crtInputLine {
+  animation: inputGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes inputGlow {
+  from { text-shadow: 0 0 5px rgba(0,255,0,0.5); }
+  to { text-shadow: 0 0 15px rgba(0,255,0,0.8), 0 0 25px rgba(0,255,0,0.4); }
 }
