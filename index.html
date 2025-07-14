@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<<<<<<< HEAD
     <title>THE SWAN</title>
     <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="src/style.css" />
@@ -21,6 +22,229 @@
       <div id="bigTimer" class="big-timer">108</div>
       <div class="prompt">
         >: <input type="text" class="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+=======
+    <link rel="icon" href="assets/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="src/style.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
+    <title>The Swan Station</title>
+  </head>
+  
+  <body>
+    <div id="main-container">
+      <!-- Navigation -->
+      <nav id="nav-menu" role="navigation" aria-label="Main navigation">
+        <div class="nav-item active" data-screen="auth" role="button" tabindex="0" aria-label="Home screen">Home</div>
+        <div class="nav-item" data-screen="about" role="button" tabindex="0" aria-label="About screen">About</div>
+        <div class="nav-item" data-screen="history" role="button" tabindex="0" aria-label="History screen">History</div>
+        <div class="nav-item" data-screen="faq" role="button" tabindex="0" aria-label="FAQ screen">FAQ</div>
+        <div class="nav-item" data-screen="profile" role="button" tabindex="0" aria-label="Profile screen">Profile</div>
+        <div class="sound-toggle">
+          <img src="assets/sound-on.png" alt="Toggle Sound" id="sound-toggle" role="button" tabindex="0" aria-label="Toggle sound on/off">
+        </div>
+      </nav>
+
+      <!-- Auth Screen -->
+      <div id="auth-container" class="screen" role="main">
+        <div class="dharma-logo" aria-label="DHARMA Initiative Logo"></div>
+        <div class="welcome-text">
+          <h1>Welcome to The Swan Station</h1>
+          <p>Every 108 minutes, the button must be pushed. From the moment the alarm sounds, you will have four minutes to enter the code into the microcomputer processor.</p>
+          <p>Either you or your partners must input the code. It is highly recommended that you and your partners take alternating shifts. In this manner you will all stay fresh and alert.</p>
+        </div>
+        <form class="auth-form" novalidate>
+          <label for="username" class="sr-only">Username</label>
+          <input type="text" id="username" name="username" placeholder="Username" autocomplete="username" required aria-describedby="username-help">
+          <div id="username-help" class="sr-only">Enter your username to access the station</div>
+          
+          <label for="password" class="sr-only">Password</label>
+          <input type="password" id="password" name="password" placeholder="Password" autocomplete="current-password" required aria-describedby="password-help">
+          <div id="password-help" class="sr-only">Enter your password to access the station</div>
+          
+          <button type="button" id="register-button" aria-describedby="register-help">Register</button>
+          <div id="register-help" class="sr-only">Create a new account</div>
+          
+          <button type="button" id="login-button" aria-describedby="login-help">Login</button>
+          <div id="login-help" class="sr-only">Login to your existing account</div>
+        </form>
+      </div>
+
+      <!-- Main Game Screen -->
+      <div id="game-container" class="screen" style="display: none;" role="main">
+        <header class="header">
+          <div class="user-info">
+            <span id="user-display" aria-label="Current user"></span>
+            <img id="user-flag" src="assets/question-mark.png" alt="Country Flag" aria-describedby="flag-help">
+            <div id="flag-help" class="sr-only">User's country flag</div>
+            <span class="points">Points: <span id="user-points" aria-label="User points">0</span></span>
+            <span class="level" id="level-info" aria-label="User level">Level 1</span>
+          </div>
+          <div class="online-counter">
+            Online Hatchies: <span id="online-counter" aria-label="Number of online users">0</span>
+          </div>
+          <button id="logout-button" aria-label="Logout from the station">Logout</button>
+        </header>
+        
+        <main class="main-interface">
+          <section class="timer-section" aria-labelledby="timer-heading">
+            <h2 id="timer-heading" class="sr-only">Timer and Code Input</h2>
+            <div class="timer-display" role="timer" aria-live="polite">
+              <span id="timer-display" aria-label="Countdown timer">108:00</span>
+            </div>
+            <label for="code-input" class="sr-only">Enter the reset code</label>
+            <input type="text" id="code-input" maxlength="17" placeholder="Enter code..." aria-describedby="code-hint" autocomplete="off" />
+            <div id="code-hint" class="code-hint">Code format: 4 8 15 16 23 42</div>
+          </section>
+
+          <section class="info-section">
+            <div id="system-log" class="panel" role="log" aria-labelledby="log-heading">
+              <h3 id="log-heading">System Log</h3>
+              <div id="log-messages" aria-live="polite" aria-label="System log messages"></div>
+            </div>
+
+            <div id="statistics" class="panel" aria-labelledby="stats-heading">
+              <h3 id="stats-heading">Statistics</h3>
+              <dl>
+                <dt>Current Record:</dt>
+                <dd id="current-record" aria-label="Current record time">--</dd>
+                
+                <dt>Last Reset By:</dt>
+                <dd id="last-reset-by" aria-label="User who last reset the timer">--</dd>
+                
+                <dt>System Failures:</dt>
+                <dd id="system-failures" aria-label="Total system failures">0</dd>
+                
+                <dt>Your Total Resets:</dt>
+                <dd id="total-resets" aria-label="Your total resets">0</dd>
+                
+                <dt>Consecutive Resets:</dt>
+                <dd id="consecutive-resets" aria-label="Your consecutive resets">0</dd>
+              </dl>
+            </div>
+
+            <div id="chat-container" class="panel" aria-labelledby="chat-heading">
+              <h3 id="chat-heading">Communication</h3>
+              <div id="chat-messages" role="log" aria-live="polite" aria-label="Chat messages"></div>
+              <div class="chat-input-container">
+                <label for="chat-input" class="sr-only">Type your message</label>
+                <input type="text" id="chat-input" placeholder="Type message..." aria-describedby="chat-help" />
+                <div id="chat-help" class="sr-only">Enter a message to communicate with other users</div>
+                <button id="chat-send" aria-label="Send message">Send</button>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <!-- About Screen -->
+      <div id="about-screen" class="screen" style="display: none;" role="main">
+        <h1>About The Swan</h1>
+        <div class="about-content">
+          <img src="assets/swan.png" alt="Swan Station exterior view" class="about-image">
+          <p>The Swan, more commonly known as The Hatch by the survivors of Flight 815, was an underground facility on the Island built by the DHARMA Initiative during the late 1970's.</p>
+          <p>The DHARMA Initiative had originally designed the station to be a laboratory to study and manipulate the "unique electromagnetic fluctuations emanating from this sector of the Island," as described by Pierre Chang in the Swan orientation video. However, after the "incident", they enacted a special protocol to prevent a potential global catastrophe.</p>
+          <p>Two individuals manning the station took shifts (entering numbers into a computer) every 108 minutes. These two operators lived and worked at the station, continuing this task for shifts lasting 540 days.</p>
+          <a href="https://lostpedia.fandom.com/wiki/The_Swan" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Read more about The Swan on Lostpedia (opens in new tab)">Read more on Lostpedia →</a>
+        </div>
+      </div>
+
+      <!-- History Screen -->
+      <div id="history-screen" class="screen" style="display: none;" role="main">
+        <h1>Station History</h1>
+        <div class="history-content">
+          <div id="station-log-messages" class="scrollable-log" role="log" aria-live="polite" aria-label="Station history log"></div>
+        </div>
+      </div>
+
+      <!-- FAQ Screen -->
+      <div id="faq-screen" class="screen" style="display: none;" role="main">
+        <h1>Frequently Asked Questions</h1>
+        <div class="faq-content" role="region" aria-label="Frequently asked questions">
+          <!-- FAQ items will be dynamically loaded -->
+        </div>
+      </div>
+
+      <!-- Profile Screen -->
+      <div id="profile-screen" class="screen" style="display: none;" role="main">
+        <div class="profile-header">
+          <div class="profile-image">
+            <img id="profile-pic" src="assets/default-avatar.png" alt="User profile picture">
+            <button id="change-pic" class="hover-button" aria-label="Change profile picture">Change Picture</button>
+          </div>
+          <div class="profile-info">
+            <h1 id="profile-username" aria-label="Profile username"></h1>
+            <dl class="profile-stats">
+              <dt>Level:</dt>
+              <dd id="profile-level" aria-label="User level"></dd>
+              
+              <dt>Points:</dt>
+              <dd id="profile-points" aria-label="User points"></dd>
+              
+              <dt>Total Resets:</dt>
+              <dd id="profile-resets" aria-label="Total resets"></dd>
+              
+              <dt>Time on Station:</dt>
+              <dd id="profile-time" aria-label="Time spent on station"></dd>
+            </dl>
+          </div>
+        </div>
+        <div class="profile-settings">
+          <h2>Settings</h2>
+          <button id="ignored-users" aria-label="Manage ignored users">Manage Ignored Users</button>
+          <button id="change-password" aria-label="Change password">Change Password</button>
+        </div>
+      </div>
+
+      <!-- System Failure Screen -->
+      <div id="system-failure" class="screen" style="display: none;" role="alert" aria-live="assertive">
+        <h1>SYSTEM FAILURE</h1>
+        <div id="hieroglyphs" aria-label="Hieroglyphic symbols"></div>
+        <div class="failure-message" role="status">
+          The timer has reached zero. The electromagnetic buildup has caused a system failure.
+          All progress has been lost. The world has ended.
+        </div>
+      </div>
+
+      <!-- Lockdown Screen -->
+      <div id="lockdown" class="screen" style="display: none;" role="alert" aria-live="assertive">
+        <div class="blast-door">
+          <div class="blast-door-map" aria-label="Blast door emergency map"></div>
+        </div>
+        <div class="lockdown-message" role="status">LOCKDOWN IN PROGRESS</div>
+      </div>
+
+      <!-- Modals -->
+      <div id="profile-pic-modal" class="modal" style="display: none;" role="dialog" aria-labelledby="pic-modal-title" aria-modal="true">
+        <div class="modal-content">
+          <h3 id="pic-modal-title">Change Profile Picture</h3>
+          <div class="pic-options">
+            <div class="option">
+              <img src="assets/identicon.png" alt="Identicon option">
+              <button data-type="identicon" aria-label="Use Identicon as profile picture">Use Identicon</button>
+            </div>
+            <div class="option">
+              <img src="assets/gravatar.png" alt="Gravatar option">
+              <button data-type="gravatar" aria-label="Use Gravatar as profile picture">Use Gravatar</button>
+            </div>
+            <div class="option">
+              <label for="custom-pic" class="sr-only">Upload custom picture</label>
+              <input type="file" id="custom-pic" accept="image/*" aria-describedby="upload-help">
+              <div id="upload-help" class="sr-only">Select an image file to upload</div>
+              <button data-type="custom" aria-label="Upload custom picture">Upload Picture</button>
+            </div>
+          </div>
+          <button class="close-modal" aria-label="Close modal">Close</button>
+        </div>
+      </div>
+
+      <div id="ignored-users-modal" class="modal" style="display: none;" role="dialog" aria-labelledby="ignored-modal-title" aria-modal="true">
+        <div class="modal-content">
+          <h3 id="ignored-modal-title">Ignored Users</h3>
+          <div id="ignored-list" role="list" aria-label="List of ignored users"></div>
+          <button class="close-modal" aria-label="Close modal">Close</button>
+        </div>
+>>>>>>> 30a2a65b7013669e6e4f7c20522b0e6e253c82ba
       </div>
     </div>
 
