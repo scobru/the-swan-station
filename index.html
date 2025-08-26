@@ -1,31 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>THE SWAN</title>
-    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="src/style.css" />
-    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
-    <!-- Prevent iOS tap highlight -->
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <!-- Add iOS icons and splash screens here if needed -->
-  </head>
-  
-  <body>
-    <div id="statsContainer" class="stats-container"></div>
-    <div class="container">
-      <h1><span>&gt;</span>:</h1>
-      <div id="bigTimer" class="big-timer">108</div>
-      <div class="prompt">
-        >: <input type="text" class="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-      </div>
-    </div>
 
-    <div class="log-container" id="logContainer"></div>
-  
-    <script src="src/script.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>THE SWAN</title>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="src/style.css" />
+
+  <!-- Prevent iOS tap highlight -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <!-- Add iOS icons and splash screens here if needed -->
+</head>
+
+<body>
+  <div id="statsContainer" class="stats-container"></div>
+
+  <!-- Logo and Station Rules -->
+  <div class="header-section">
+    <div class="logo-container">
+      <img src="assets/swan.png" alt="SHOGUN ECO Swan Station" class="station-logo">
+      <div class="logo-text">SHOGUN ECO</div>
+      <div class="station-name">SWAN STATION</div>
+      <div class="connection-status" id="connectionStatus">CONNECTING...</div>
+      <div class="contribution-indicator" id="contributionIndicator">CONTRIBUTING TO NETWORK</div>
+    </div>
+    <div class="rules-toggle">
+      <button id="rulesBtn" class="rules-button">[ STATION RULES ]</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <h1><span>&gt;</span>:</h1>
+    <div id="bigTimer" class="big-timer">108</div>
+    <div class="prompt">
+      >: <input type="text" class="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </div>
+  </div>
+
+  <div class="log-container" id="logContainer"></div>
+  <!-- Shogun Core CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@multiavatar/multiavatar/multiavatar.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/shogun-core/dist/browser/shogun-core.js"></script>
+  <script src="src/script.js"></script>
+</body>
+
 </html>
