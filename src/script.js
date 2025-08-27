@@ -388,7 +388,7 @@ async function initializeShogun() {
 
     // Get GunDB instance and user from shogun-core
     gun = shogun.db.gun;
-    user = shogun.db.user.recall({ sessionStorage: true });
+    user = shogun.db.gun.user().recall({ sessionStorage: true });
 
     // Update title and connection status
     document.title = "SWAN STATION - CONNECTED";
@@ -747,9 +747,9 @@ function startApp(alias) {
     window.profileListenerSet = true;
   }
 
-  // Store the profile timeout references for cleanup
-  window.profileTimeout = profileTimeout;
-  window.profileListenerTimeout = profileListenerTimeout;
+  // Store the profile timeout references for cleanup (disabled since listener is disabled)
+  // window.profileTimeout = profileTimeout;
+  // window.profileListenerTimeout = profileListenerTimeout;
 
   // Manual profile update function (replaces continuous listener)
   window.updateUserProfile = () => {
