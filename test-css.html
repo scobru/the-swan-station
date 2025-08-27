@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSS Test</title>
+    <link rel="stylesheet" type="text/css" href="src/style.css">
+</head>
+
+<body>
+    <h1>CSS Test Page</h1>
+    <p>If you see this in green monospace font, CSS is working!</p>
+    <script>
+        // Test if CSS is loaded
+        setTimeout(() => {
+            const bodyStyle = window.getComputedStyle(document.body);
+            const fontFamily = bodyStyle.fontFamily;
+            const color = bodyStyle.color;
+
+            console.log('Font family:', fontFamily);
+            console.log('Color:', color);
+
+            if (fontFamily.includes('VT323') || color === 'rgb(0, 255, 0)') {
+                document.body.innerHTML += '<p style="color: green;">✅ CSS loaded successfully!</p>';
+            } else {
+                document.body.innerHTML += '<p style="color: red;">❌ CSS not loaded properly</p>';
+            }
+        }, 1000);
+    </script>
+</body>
+
+</html>

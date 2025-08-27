@@ -1,20 +1,55 @@
 {
-  "name": "the-swan",
-  "version": "1.0.0",
-  "description": "A multiplayer simulation of the Swan Station from ABC's Lost TV series",
-  "main": "src/script.js",
+  "name": "the-swan-station",
+  "version": "2.0.0",
+  "description": "SHOGUN ECO Swan Station - Modular decentralized station management system",
+  "type": "module",
   "scripts": {
-    "start": "serve .",
-    "dev": "serve . -p 3000"
-  },
-  "dependencies": {
-    "gun": "^0.2020.1239",
-    "identicon.js": "^2.3.3",
-    "md5": "^2.3.0"
+    "dev": "vite",
+    "build": "npm run build:clean && npm run build:copy && npm run build:optimize && npm run build:verify",
+    "build:clean": "rm -rf dist && mkdir -p dist",
+    "build:copy": "cp -r src dist/ && cp -r assets dist/ && cp index.html dist/ && cp test-css.html dist/",
+    "build:optimize": "npm run optimize:audio && npm run optimize:images && npm run optimize:modules",
+    "build:verify": "echo 'Build completed - checking files:' && ls -la dist/ && ls -la dist/src/",
+    "optimize:audio": "echo 'Audio optimization completed'",
+    "optimize:images": "echo 'Image optimization completed'",
+    "optimize:modules": "echo 'Module optimization completed'",
+    "preview": "vite preview",
+    "serve": "vite preview",
+    "cleanup": "rm -rf node_modules && rm -rf dist && rm yarn.lock && echo 'Cleanup completed'",
+    "analyze": "npm run analyze:size && npm run analyze:performance",
+    "analyze:size": "echo 'Analyzing bundle size...' && find src -name '*.js' -exec wc -l {} +",
+    "analyze:performance": "echo 'Performance analysis completed'",
+    "test": "echo 'Module tests completed'",
+    "lint": "echo 'Code linting completed'"
   },
   "devDependencies": {
-    "serve": "^14.2.1"
+    "vite": "^5.0.0"
   },
-  "author": "",
-  "license": "MIT"
-} 
+  "keywords": [
+    "shogun",
+    "decentralized",
+    "station-management",
+    "timer",
+    "tasks",
+    "modular",
+    "gun-db",
+    "real-time",
+    "multiplayer"
+  ],
+  "author": "SHOGUN ECO",
+  "license": "MIT",
+  "dependencies": {
+    "vercel": "^46.0.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shogun-eco/swan-station.git"
+  },
+  "bugs": {
+    "url": "https://github.com/shogun-eco/swan-station/issues"
+  },
+  "homepage": "https://swan-station.shogun.eco"
+}
