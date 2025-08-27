@@ -707,26 +707,64 @@ function startApp(alias) {
     }
   });
 
-  // Listen for profile updates with timeout protection
-  const profileListenerTimeout = setTimeout(() => {
-    console.warn("⚠️ Profile listener timeout - removing listener");
-    user.get("profile").off(); // Remove the listener if it times out
-  }, 10000); // 10 second timeout for profile listener
+  // Listen for profile updates with timeout protection (only if not already set up)
+  // Temporarily disable profile listener to prevent excessive calls
+  if (!window.profileListenerSet && false) {
+    // Disabled temporarily
+    const profileListenerTimeout = setTimeout(() => {
+      console.warn("⚠️ Profile listener timeout - removing listener");
+      user.get("profile").off(); // Remove the listener if it times out
+    }, 10000); // 10 second timeout for profile listener
 
-  user.get("profile").on((profile) => {
-    clearTimeout(profileListenerTimeout);
-    console.log("🔄 Profile update received:", profile);
+    const profileListener = user.get("profile").on((profile) => {
+      clearTimeout(profileListenerTimeout);
 
-    if (profile) {
-      currentUser.points = profile.points;
-      currentUser.level = getLevelFromPoints(profile.points);
-      if (stats) updateStatsUI(stats);
-    }
-  });
+      // Add rate limiting to prevent excessive logging and processing
+      const now = Date.now();
+      if (
+        !window.lastProfileLogTime ||
+        now - window.lastProfileLogTime > 5000
+      ) {
+        console.log("🔄 Profile update received:", profile);
+        window.lastProfileLogTime = now;
+
+        if (profile) {
+          currentUser.points = profile.points;
+          currentUser.level = getLevelFromPoints(profile.points);
+          if (stats) updateStatsUI(stats);
+        }
+      } else {
+        // Still update the data but don't log or update UI as frequently
+        if (profile) {
+          currentUser.points = profile.points;
+          currentUser.level = getLevelFromPoints(profile.points);
+        }
+      }
+    });
+
+    // Register the profile listener for cleanup
+    cleanupRegistry.profileListeners.add(profileListener);
+    window.profileListenerSet = true;
+  }
 
   // Store the profile timeout references for cleanup
   window.profileTimeout = profileTimeout;
   window.profileListenerTimeout = profileListenerTimeout;
+
+  // Manual profile update function (replaces continuous listener)
+  window.updateUserProfile = () => {
+    user.get("profile").once((profile) => {
+      if (profile) {
+        currentUser.points = profile.points;
+        currentUser.level = getLevelFromPoints(profile.points);
+        if (stats) updateStatsUI(stats);
+        console.log("📊 Manual profile update completed");
+      }
+    });
+  };
+
+  // Initial profile update
+  window.updateUserProfile();
 
   // Show the main container and hide header
   const container = document.querySelector(".container");
@@ -1394,6 +1432,13 @@ input.onkeydown = (event) => {
               points: newPoints,
               level: newLevel,
             });
+
+            // Update local user data immediately
+            currentUser.points = newPoints;
+            currentUser.level = newLevel;
+
+            // Update UI immediately
+            if (stats) updateStatsUI(stats);
           });
         });
 
@@ -2041,6 +2086,9 @@ function showProfile() {
   // Refresh profile handler
   document.getElementById("refreshProfile").onclick = () => {
     updateProfile();
+    if (window.updateUserProfile) {
+      window.updateUserProfile();
+    }
     addLog("Profile refreshed", "info");
   };
 
@@ -5331,6 +5379,13 @@ function awardTaskPoints(points) {
       .get(currentUser.alias)
       .put({ points: newPoints, level: newLevel });
     addLog(`+${points} points for task completion!`, "success");
+
+    // Update local user data immediately
+    currentUser.points = newPoints;
+    currentUser.level = newLevel;
+
+    // Update UI immediately
+    if (stats) updateStatsUI(stats);
   });
 }
 
