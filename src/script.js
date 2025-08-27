@@ -22,7 +22,6 @@ const cleanupRegistry = {
 const performanceMonitor = {
   startTime: Date.now(),
   memoryUsage: [],
-  fps: [],
   errors: [],
 
   logMemory() {
@@ -32,11 +31,7 @@ const performanceMonitor = {
         used: performance.memory.usedJSHeapSize,
         total: performance.memory.totalJSHeapSize,
       });
-
-      // Keep only last 100 entries
-      if (this.memoryUsage.length > 100) {
-        this.memoryUsage.shift();
-      }
+      if (this.memoryUsage.length > 100) this.memoryUsage.shift();
     }
   },
 
@@ -46,11 +41,7 @@ const performanceMonitor = {
       message: error.message,
       stack: error.stack,
     });
-
-    // Keep only last 50 errors
-    if (this.errors.length > 50) {
-      this.errors.shift();
-    }
+    if (this.errors.length > 50) this.errors.shift();
   },
 
   getStats() {
@@ -69,33 +60,27 @@ const performanceMonitor = {
 
 // Cleanup function to prevent memory leaks
 function cleanup() {
-  // Clear all intervals
-  cleanupRegistry.intervals.forEach((interval) => {
-    if (interval) clearInterval(interval);
-  });
-  cleanupRegistry.intervals.clear();
-
-  // Clear all timeouts
-  cleanupRegistry.timeouts.forEach((timeout) => {
-    if (timeout) clearTimeout(timeout);
-  });
-  cleanupRegistry.timeouts.clear();
-
-  // Remove all listeners
+  cleanupRegistry.intervals.forEach(
+    (interval) => interval && clearInterval(interval)
+  );
+  cleanupRegistry.timeouts.forEach(
+    (timeout) => timeout && clearTimeout(timeout)
+  );
   cleanupRegistry.listeners.forEach((listener) => {
-    if (listener && listener.element && listener.event && listener.handler) {
+    if (listener?.element?.removeEventListener) {
       listener.element.removeEventListener(listener.event, listener.handler);
     }
   });
-  cleanupRegistry.listeners.clear();
-
-  // Pause all audio elements
   cleanupRegistry.audioElements.forEach((audio) => {
-    if (audio && typeof audio.pause === "function") {
+    if (audio?.pause) {
       audio.pause();
       audio.currentTime = 0;
     }
   });
+
+  cleanupRegistry.intervals.clear();
+  cleanupRegistry.timeouts.clear();
+  cleanupRegistry.listeners.clear();
   cleanupRegistry.audioElements.clear();
 
   console.log("🧹 Cleanup completed");
@@ -526,27 +511,20 @@ const siren = new Audio("assets/siren.mp3");
 const reset = new Audio("assets/reset.mp3");
 const tick = new Audio("assets/tick.mp3");
 
-// Register audio elements for cleanup
-cleanupRegistry.audioElements.add(siren);
-cleanupRegistry.audioElements.add(reset);
-cleanupRegistry.audioElements.add(tick);
-
-// Error handling for audio loading
 [siren, reset, tick].forEach((audio) => {
-  audio.addEventListener("error", (e) => {
-    console.warn("Audio loading failed:", e.target.src);
-  });
+  cleanupRegistry.audioElements.add(audio);
+  audio.addEventListener("error", (e) =>
+    console.warn("Audio loading failed:", e.target.src)
+  );
 });
 
 const buttonSounds = Array.from({ length: 8 }, (_, i) => {
   const audio = new Audio(`assets/typing_sounds/button${i + 1}.mp3`);
   audio.preload = "auto";
   cleanupRegistry.audioElements.add(audio);
-
-  audio.addEventListener("error", (e) => {
-    console.warn("Button sound loading failed:", e.target.src);
-  });
-
+  audio.addEventListener("error", (e) =>
+    console.warn("Button sound loading failed:", e.target.src)
+  );
   return audio;
 });
 
@@ -604,10 +582,6 @@ function getLevelFromPoints(points) {
     }
   }
   return level;
-}
-
-function calculateLevel(points) {
-  return getLevelFromPoints(points);
 }
 
 function stopApp() {
@@ -1038,16 +1012,13 @@ function addLog(message, type = "info") {
 // Typing sound function with error handling and volume control
 function typeSound() {
   try {
-    const randomNumber = Math.floor(Math.random() * 7);
-    const audio = buttonSounds[randomNumber];
-
-    if (audio && audio.readyState >= 2) {
-      // HAVE_CURRENT_DATA or higher
-      audio.volume = 0.3; // Reduce volume to 30%
-      audio.currentTime = 0; // Reset to start
-      audio.play().catch((error) => {
-        console.warn("Failed to play button sound:", error);
-      });
+    const audio = buttonSounds[Math.floor(Math.random() * 7)];
+    if (audio?.readyState >= 2) {
+      audio.volume = 0.3;
+      audio.currentTime = 0;
+      audio
+        .play()
+        .catch((error) => console.warn("Failed to play button sound:", error));
     }
   } catch (error) {
     console.warn("Error in typeSound function:", error);
@@ -1061,7 +1032,7 @@ function updateTimer(newValue, reason = "") {
     timerRef.put({
       value: newValue,
       lastUpdate: Date.now(),
-      updatedBy: currentUser ? currentUser.alias : "UNKNOWN",
+      updatedBy: currentUser?.alias || "UNKNOWN",
       reason: reason,
     });
   }
@@ -1070,31 +1041,25 @@ function updateTimer(newValue, reason = "") {
 // Setup main timer listener to react to any change
 function setupTimerListener() {
   console.log("Setting up timer listener...");
-  console.log("timerRef:", timerRef);
-  console.log("bigTimer element:", bigTimer);
-
   if (timerRef) {
     timerRef.on((data) => {
       console.log("Timer data received:", data);
       if (data && typeof data.value === "number") {
         document.title = data.value;
-        bigTimer.textContent = data.value; // Update the big timer display
+        bigTimer.textContent = data.value;
 
         let updateMessage = `Timer updated to: ${data.value}`;
-        if (data.updatedBy) {
-          updateMessage += ` by ${data.updatedBy}`;
-        }
+        if (data.updatedBy) updateMessage += ` by ${data.updatedBy}`;
         addLog(updateMessage);
 
-        // Update input state based on timer value
         updateInputState(data.value);
 
         if (data.value <= 4) {
-          if (siren && siren.readyState >= 2) {
-            siren.volume = 0.5; // Reduce volume to 50%
-            siren.play().catch((error) => {
-              console.warn("Failed to play siren:", error);
-            });
+          if (siren?.readyState >= 2) {
+            siren.volume = 0.5;
+            siren
+              .play()
+              .catch((error) => console.warn("Failed to play siren:", error));
           }
           addLog("WARNING: System failure imminent!", "warning");
         }
@@ -1104,10 +1069,7 @@ function setupTimerListener() {
             siren.pause();
             siren.currentTime = 0;
           }
-          // Stop system failure display if timer is reset above 4
-          if (systemFailureActive) {
-            stopSystemFailureDisplay();
-          }
+          if (systemFailureActive) stopSystemFailureDisplay();
         }
       }
     });
@@ -1118,37 +1080,36 @@ function setupTimerListener() {
 function updateInputState(timerValue) {
   const input = document.querySelector(".input");
   const prompt = document.querySelector(".prompt");
-  const container = document.querySelector(".container");
 
   if (timerValue <= 4) {
     // Enable input in last 4 minutes
-    input.disabled = false;
-    input.placeholder = "Enter code sequence...";
-    if (prompt) {
-      prompt.style.opacity = "1";
-      prompt.style.color = "#00ff00";
-      prompt.style.display = "block";
-    }
     if (input) {
+      input.disabled = false;
+      input.placeholder = "Enter code sequence...";
       input.style.opacity = "1";
       input.style.color = "#00ff00";
       input.style.borderColor = "#00ff00";
       input.style.display = "block";
     }
+    if (prompt) {
+      prompt.style.opacity = "1";
+      prompt.style.color = "#00ff00";
+      prompt.style.display = "block";
+    }
   } else {
     // Disable input when timer > 4
-    input.disabled = true;
-    input.placeholder = "Code input locked until last 4 minutes";
-    if (prompt) {
-      prompt.style.opacity = "0.5";
-      prompt.style.color = "#666";
-      prompt.style.display = "none";
-    }
     if (input) {
+      input.disabled = true;
+      input.placeholder = "Code input locked until last 4 minutes";
       input.style.opacity = "0.5";
       input.style.color = "#666";
       input.style.borderColor = "#666";
       input.style.display = "none";
+    }
+    if (prompt) {
+      prompt.style.opacity = "0.5";
+      prompt.style.color = "#666";
+      prompt.style.display = "none";
     }
   }
 }
@@ -1308,20 +1269,21 @@ function decrementTimer() {
     // Normal decrement
     if (data.value > 1) {
       updateTimer(data.value - 1, "timer_tick");
-      if (tick && tick.readyState >= 2) {
-        tick.volume = 0.2; // Very low volume for tick sound
-        tick.play().catch((error) => {
-          console.warn("Failed to play tick sound:", error);
-        });
+      if (tick?.readyState >= 2) {
+        tick.volume = 0.2;
+        tick
+          .play()
+          .catch((error) => console.warn("Failed to play tick sound:", error));
       }
     } else if (data.value <= 1 && data.value > 0) {
-      // Timer has reached 0, trigger system failure
       triggerSystemFailure();
-      if (tick && tick.readyState >= 2) {
+      if (tick?.readyState >= 2) {
         tick.volume = 0.2;
-        tick.play().catch((error) => {
-          console.warn("Failed to play tick sound for system failure:", error);
-        });
+        tick
+          .play()
+          .catch((error) =>
+            console.warn("Failed to play tick sound for system failure:", error)
+          );
       }
     }
   });
@@ -1330,10 +1292,7 @@ function decrementTimer() {
 // Generate avatar from public key using Multiavatar
 function generateAvatar(pubKey) {
   try {
-    // Use the public key as seed for consistent avatar generation
     const avatarSvg = multiavatar(pubKey, false);
-
-    // Convert SVG to data URL
     return (
       "data:image/svg+xml;base64," +
       btoa(unescape(encodeURIComponent(avatarSvg)))
@@ -1347,58 +1306,40 @@ function generateAvatar(pubKey) {
     canvas.height = 128;
     const ctx = canvas.getContext("2d");
 
-    // Generate colors from pubKey
     const color1 = "#" + pubKey.slice(-6);
     const color2 = "#" + pubKey.slice(-12, -6);
     const color3 = "#" + pubKey.slice(-18, -12);
 
-    // Black background
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, 128, 128);
 
-    // DHARMA green border
     ctx.strokeStyle = "#00ff00";
     ctx.lineWidth = 4;
     ctx.strokeRect(0, 0, 128, 128);
 
-    // Inner border
     ctx.strokeStyle = "#00ff00";
     ctx.lineWidth = 2;
     ctx.strokeRect(8, 8, 112, 112);
 
-    // Generate unique pattern based on pubKey
     const pattern = [];
     for (let i = 0; i < pubKey.length; i++) {
       pattern.push(parseInt(pubKey[i], 16));
     }
 
-    // Draw geometric pattern
     for (let i = 0; i < 16; i++) {
       for (let j = 0; j < 16; j++) {
         const index = (i * 16 + j) % pattern.length;
         const value = pattern[index];
-
-        if (value % 3 === 0) {
-          ctx.fillStyle = color1;
-          ctx.fillRect(i * 8, j * 8, 8, 8);
-        } else if (value % 3 === 1) {
-          ctx.fillStyle = color2;
-          ctx.fillRect(i * 8, j * 8, 8, 8);
-        } else {
-          ctx.fillStyle = color3;
-          ctx.fillRect(i * 8, j * 8, 8, 8);
-        }
+        ctx.fillStyle =
+          value % 3 === 0 ? color1 : value % 3 === 1 ? color2 : color3;
+        ctx.fillRect(i * 8, j * 8, 8, 8);
       }
     }
 
-    // Add DHARMA symbol in center
     ctx.fillStyle = "#00ff00";
     ctx.font = "24px monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("DH", 64, 64);
-
-    // Add subtle glow effect
     ctx.shadowColor = "#00ff00";
     ctx.shadowBlur = 10;
     ctx.fillText("DH", 64, 64);
@@ -2077,11 +2018,9 @@ let systemFailureInterval = null;
 let systemFailureActive = false;
 
 function startSystemFailureDisplay() {
-  if (systemFailureActive) return; // Prevent multiple intervals
+  if (systemFailureActive) return;
 
   systemFailureActive = true;
-
-  // Create or update the system failure display
   let failureDisplay = document.getElementById("systemFailureDisplay");
   if (!failureDisplay) {
     failureDisplay = document.createElement("div");
@@ -2090,18 +2029,13 @@ function startSystemFailureDisplay() {
     document.body.appendChild(failureDisplay);
   }
 
-  // Start continuous SYSTEM FAILURE messages
   systemFailureInterval = setInterval(() => {
     addLog("SYSTEM FAILURE", "error");
-
-    // Update the visual display
     failureDisplay.textContent = "SYSTEM FAILURE";
     failureDisplay.style.display = "block";
-
-    // Flash effect
     failureDisplay.style.opacity =
       failureDisplay.style.opacity === "0.5" ? "1" : "0.5";
-  }, 1000); // Every second
+  }, 1000);
 }
 
 function stopSystemFailureDisplay() {
@@ -2109,14 +2043,9 @@ function stopSystemFailureDisplay() {
     clearInterval(systemFailureInterval);
     systemFailureInterval = null;
   }
-
   systemFailureActive = false;
-
-  // Hide the display
   const failureDisplay = document.getElementById("systemFailureDisplay");
-  if (failureDisplay) {
-    failureDisplay.style.display = "none";
-  }
+  if (failureDisplay) failureDisplay.style.display = "none";
 }
 
 // Connection status update function
@@ -3002,79 +2931,11 @@ function showOperatorInfo(operator) {
 
 // Format last seen time
 function formatLastSeen(timestamp) {
-  const now = Date.now();
-  const diff = now - timestamp;
-
+  const diff = Date.now() - timestamp;
   if (diff < 60000) return "Just now";
   if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   return `${Math.floor(diff / 86400000)}d ago`;
-}
-
-// Debug function to check location data
-function debugLocationData() {
-  console.log("=== LOCATION DEBUG ===");
-
-  // Check current user's location
-  if (user && user.is && user.is.pub) {
-    console.log("Current user pub:", user.is.pub);
-
-    // Check user profile location
-    user.get("profile").once((profile) => {
-      console.log("User profile:", profile);
-      if (profile && profile.location) {
-        console.log("User location in profile:", profile.location);
-      } else {
-        console.log("No location in user profile");
-      }
-    });
-
-    // Check users collection location
-    gun
-      .get("users")
-      .get(user.is.pub)
-      .get("profile")
-      .once((profile) => {
-        console.log("Users collection profile:", profile);
-        if (profile && profile.location) {
-          console.log("User location in users collection:", profile.location);
-        } else {
-          console.log("No location in users collection");
-        }
-      });
-  }
-
-  // Check all operators and their locations
-  let operatorCount = 0;
-  operatorsRef.map().once((data, key) => {
-    if (data && data.name) {
-      operatorCount++;
-      console.log(`Operator ${operatorCount}: ${data.name} (${key})`);
-      console.log("  Data:", data);
-
-      // Check their location
-      gun
-        .get("users")
-        .get(data.pub)
-        .get("profile")
-        .once((profile) => {
-          if (profile && profile.location) {
-            console.log(`  ✅ Location for ${data.name}: ${profile.location}`);
-          } else {
-            console.log(`  ❌ No location for ${data.name}`);
-          }
-        });
-    }
-  });
-
-  console.log(`Total operators found: ${operatorCount}`);
-
-  // Check GunDB connection status
-  console.log("GunDB connection status:", gun._.opt.peers);
-
-  // Check if operatorsRef is properly initialized
-  console.log("operatorsRef:", operatorsRef);
-  console.log("operatorsRef._.graph:", operatorsRef._.graph);
 }
 
 // Initialize network metrics
@@ -3792,11 +3653,18 @@ function showStationRules() {
       <h2>&gt; SWAN STATION OPERATIONAL PROTOCOL</h2>
       
       <div class="rules-section">
+        <h3>EXPERIMENT OVERVIEW</h3>
+        <p class="success">Swan Station is an experimental decentralized application (dApp) developed by <strong>shogun-eco.xyz</strong> to demonstrate the power of peer-to-peer collaboration and decentralized technology.</p>
+        <p class="info">This experiment showcases how a multiplayer game can operate entirely on a decentralized network without central servers, proving the viability of censorship-resistant, community-driven applications.</p>
+      </div>
+      
+      <div class="rules-section">
         <h3>MISSION OBJECTIVE</h3>
         <ul>
           <li>Prevent system failure by entering the correct sequence before timer reaches zero</li>
           <li>Maintain station stability through coordinated operator efforts</li>
           <li>Accumulate points and advance through operator levels</li>
+          <li class="success">Contribute to the shogun-eco.xyz decentralized ecosystem</li>
         </ul>
       </div>
       
@@ -3900,7 +3768,8 @@ function showAboutSection() {
       
       <div class="rules-section">
         <h3>WHAT IS SWAN STATION?</h3>
-        <p>Swan Station is a collaborative multiplayer game that simulates a critical system requiring constant operator attention. Inspired by the iconic Dharma Initiative station from Lost, players work together to prevent system failure by entering the correct sequence before the timer reaches zero.</p>
+        <p><strong>Swan Station</strong> is an experimental decentralized application (dApp) developed by <strong>shogun-eco.xyz</strong>. It's a collaborative multiplayer game that simulates a critical system requiring constant operator attention. Inspired by the iconic Dharma Initiative station from Lost, players work together to prevent system failure by entering the correct sequence before the timer reaches zero.</p>
+        <p class="success">This experiment demonstrates the potential of decentralized technology in creating engaging, real-time collaborative experiences without central control.</p>
       </div>
       
       <div class="rules-section">
@@ -3927,12 +3796,14 @@ function showAboutSection() {
       
       <div class="rules-section">
         <h3>SHOGUN ECO ECOSYSTEM</h3>
+        <p class="success"><strong>Swan Station is a flagship experiment of shogun-eco.xyz</strong>, designed to showcase the capabilities of decentralized technology in real-world applications.</p>
         <ul>
           <li class="success">Part of the larger shogun-eco.xyz decentralized ecosystem</li>
           <li class="info">Demonstrates practical applications of decentralized technology</li>
           <li class="info">Showcases real-time collaborative applications without central control</li>
           <li class="info">Serves as a proof-of-concept for decentralized gaming</li>
           <li class="success">Contributes to the broader mission of Web3 decentralization</li>
+          <li class="success">Validates the shogun-eco.xyz approach to building decentralized applications</li>
         </ul>
       </div>
       
@@ -3960,9 +3831,9 @@ function showAboutSection() {
       </div>
       
       <div class="rules-section">
-        <h3>JOIN THE NETWORK</h3>
-        <p>By participating in Swan Station, you're not just playing a game - you're contributing to a decentralized future. Every reset, every message, every connection helps strengthen the network and demonstrates the potential of peer-to-peer collaboration.</p>
-        <p class="success">Welcome to the future of decentralized gaming.</p>
+        <h3>JOIN THE EXPERIMENT</h3>
+        <p>By participating in Swan Station, you're not just playing a game - you're contributing to a groundbreaking experiment in decentralized technology by <strong>shogun-eco.xyz</strong>. Every reset, every message, every connection helps strengthen the network and demonstrates the potential of peer-to-peer collaboration.</p>
+        <p class="success">Welcome to the future of decentralized gaming and the shogun-eco.xyz ecosystem.</p>
       </div>
       
       <div class="rules-section">
@@ -4000,32 +3871,7 @@ window.addEventListener("beforeunload", () => {
 // Start the application
 initializeShogun();
 
-function handleScore(success) {
-  if (!currentUser) return;
-
-  const points = success ? 108 : -108;
-  user.get("points").once((currentPoints) => {
-    const newPoints = (currentPoints || 0) + points;
-    user.get("points").put(newPoints);
-
-    // Aggiorna le statistiche del profilo
-    user.get("profile").once((profile) => {
-      const updatedProfile = {
-        ...(profile || {}),
-        resets: (profile?.resets || 0) + (success ? 1 : 0),
-      };
-      user.get("profile").put(updatedProfile);
-    });
-
-    // Aggiorna il livello
-    const newLevel = calculateLevel(newPoints);
-    if (newLevel !== currentUser.level) {
-      user.get("level").put(newLevel);
-    }
-  });
-}
-
-// Aggiungi questa funzione per monitorare lo stato del timer
+// Timer health check function
 function checkTimerHealth() {
   if (timerRef) {
     timerRef.once((data) => {
@@ -4043,7 +3889,7 @@ function checkTimerHealth() {
   }
 }
 
-// Chiama il controllo di salute ogni 2 minuti
+// Check timer health every 2 minutes
 safeSetInterval(checkTimerHealth, 120000);
 
 // Task System Functions
@@ -5157,13 +5003,9 @@ function completeTask(taskId) {
 }
 
 function calculateTaskSuccess(task) {
-  // Base success rate based on difficulty
   let successRate = 1 - task.difficulty * 0.1; // 90% for difficulty 1, 50% for difficulty 5
-
-  // Add randomness
   successRate += (Math.random() - 0.5) * 0.2; // ±10% randomness
 
-  // Consider parameter conditions
   if (task.parameters) {
     if (
       task.parameters.targetPower &&
@@ -5194,70 +5036,45 @@ function awardTaskPoints(points) {
   user.get("profile").once((profile) => {
     const newPoints = (profile.points || 0) + points;
     const newLevel = getLevelFromPoints(newPoints);
-
     const newProfile = {
       ...profile,
       points: newPoints,
       level: newLevel,
       tasksCompleted: (profile.tasksCompleted || 0) + 1,
     };
-
     user.get("profile").put(newProfile);
-
-    // Update leaderboard
-    gun.get("leaderboard").get(currentUser.alias).put({
-      points: newPoints,
-      level: newLevel,
-    });
-
+    gun
+      .get("leaderboard")
+      .get(currentUser.alias)
+      .put({ points: newPoints, level: newLevel });
     addLog(`+${points} points for task completion!`, "success");
   });
 }
 
 function applyTaskEffects(task) {
-  // Apply realistic effects based on task completion
   const effects = parameterEffects[task.name];
-  if (effects && effects.success) {
+  if (effects?.success) {
     Object.keys(effects.success).forEach((param) => {
       stationParameters[param] += effects.success[param];
     });
-
-    // Apply parameter interdependencies
     applyParameterInterdependencies();
-
-    // Clamp values to reasonable ranges
     clampParameterValues();
-
     addLog(`Task "${task.name}" improved station parameters`, "success");
   }
-
-  stationParamsRef.put({
-    ...stationParameters,
-    lastUpdate: Date.now(),
-  });
+  stationParamsRef.put({ ...stationParameters, lastUpdate: Date.now() });
 }
 
 function applyTaskFailureEffects(task) {
-  // Apply realistic negative effects for failed tasks
   const effects = parameterEffects[task.name];
-  if (effects && effects.failure) {
+  if (effects?.failure) {
     Object.keys(effects.failure).forEach((param) => {
       stationParameters[param] += effects.failure[param];
     });
-
-    // Apply parameter interdependencies
     applyParameterInterdependencies();
-
-    // Clamp values to reasonable ranges
     clampParameterValues();
-
     addLog(`Task "${task.name}" failure worsened station parameters`, "error");
   }
-
-  stationParamsRef.put({
-    ...stationParameters,
-    lastUpdate: Date.now(),
-  });
+  stationParamsRef.put({ ...stationParameters, lastUpdate: Date.now() });
 }
 
 // Calculate bonus points based on station parameter balance
@@ -5267,7 +5084,6 @@ function calculateParameterBalanceBonus() {
   const totalParameters = 6;
 
   // Check each parameter for optimal balance
-  // Power Level: Optimal between 80-100%
   if (
     stationParameters.powerLevel >= 80 &&
     stationParameters.powerLevel <= 100
@@ -5275,8 +5091,6 @@ function calculateParameterBalanceBonus() {
     bonusPoints += 1;
     balancedParameters++;
   }
-
-  // Oxygen Level: Optimal between 85-100%
   if (
     stationParameters.oxygenLevel >= 85 &&
     stationParameters.oxygenLevel <= 100
@@ -5284,8 +5098,6 @@ function calculateParameterBalanceBonus() {
     bonusPoints += 1;
     balancedParameters++;
   }
-
-  // Temperature: Optimal between 18-25°C
   if (
     stationParameters.temperature >= 18 &&
     stationParameters.temperature <= 25
@@ -5293,20 +5105,14 @@ function calculateParameterBalanceBonus() {
     bonusPoints += 1;
     balancedParameters++;
   }
-
-  // Radiation Level: Optimal below 0.1
   if (stationParameters.radiationLevel <= 0.1) {
     bonusPoints += 1;
     balancedParameters++;
   }
-
-  // Pressure: Optimal between 980-1020 hPa
   if (stationParameters.pressure >= 980 && stationParameters.pressure <= 1020) {
     bonusPoints += 1;
     balancedParameters++;
   }
-
-  // Humidity: Optimal between 40-60%
   if (stationParameters.humidity >= 40 && stationParameters.humidity <= 60) {
     bonusPoints += 1;
     balancedParameters++;
@@ -5314,10 +5120,10 @@ function calculateParameterBalanceBonus() {
 
   // Additional bonus for having all parameters balanced
   if (balancedParameters === totalParameters) {
-    bonusPoints += 3; // Perfect balance bonus
+    bonusPoints += 3;
     addLog("PERFECT BALANCE! All parameters optimal.", "success");
   } else if (balancedParameters >= 4) {
-    bonusPoints += 1; // Good balance bonus
+    bonusPoints += 1;
   }
 
   return bonusPoints;
@@ -5326,13 +5132,12 @@ function calculateParameterBalanceBonus() {
 // Apply realistic parameter interdependencies
 function applyParameterInterdependencies() {
   const originalValues = { ...stationParameters };
-
   Object.keys(parameterInterdependencies).forEach((param) => {
     const dependencies = parameterInterdependencies[param];
     if (dependencies.affects) {
       Object.keys(dependencies.affects).forEach((affectedParam) => {
         const factor = dependencies.affects[affectedParam];
-        const change = originalValues[param] * factor * 0.01; // Small percentage effect
+        const change = originalValues[param] * factor * 0.01;
         stationParameters[affectedParam] += change;
       });
     }
@@ -5341,37 +5146,26 @@ function applyParameterInterdependencies() {
 
 // Clamp parameter values to realistic ranges
 function clampParameterValues() {
-  // Power Level: 0-100%
   stationParameters.powerLevel = Math.max(
     0,
     Math.min(100, stationParameters.powerLevel)
   );
-
-  // Oxygen Level: 0-100%
   stationParameters.oxygenLevel = Math.max(
     0,
     Math.min(100, stationParameters.oxygenLevel)
   );
-
-  // Temperature: -50°C to 100°C
   stationParameters.temperature = Math.max(
     -50,
     Math.min(100, stationParameters.temperature)
   );
-
-  // Radiation Level: 0-1
   stationParameters.radiationLevel = Math.max(
     0,
     Math.min(1, stationParameters.radiationLevel)
   );
-
-  // Pressure: 800-1200 hPa
   stationParameters.pressure = Math.max(
     800,
     Math.min(1200, stationParameters.pressure)
   );
-
-  // Humidity: 0-100%
   stationParameters.humidity = Math.max(
     0,
     Math.min(100, stationParameters.humidity)
@@ -5379,8 +5173,5 @@ function clampParameterValues() {
 }
 
 function startParameterDisplayUpdates() {
-  // Update parameter display every 2 seconds for real-time feedback
-  safeSetInterval(() => {
-    updateStationParametersDisplay();
-  }, 2000);
+  safeSetInterval(() => updateStationParametersDisplay(), 2000);
 }
