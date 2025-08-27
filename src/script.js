@@ -1,10 +1,377 @@
 // Initialize shogun core
-let shogun, gun, user, timerRef, operatorsRef, historyRef, statsRef, chatRef;
+let shogun,
+  gun,
+  user,
+  timerRef,
+  operatorsRef,
+  historyRef,
+  statsRef,
+  chatRef,
+  taskRef,
+  stationParamsRef;
+
+// Global cleanup registry for intervals and listeners
+const cleanupRegistry = {
+  intervals: new Set(),
+  listeners: new Set(),
+  timeouts: new Set(),
+  audioElements: new Set(),
+};
+
+// Performance monitoring
+const performanceMonitor = {
+  startTime: Date.now(),
+  memoryUsage: [],
+  fps: [],
+  errors: [],
+
+  logMemory() {
+    if (performance.memory) {
+      this.memoryUsage.push({
+        timestamp: Date.now(),
+        used: performance.memory.usedJSHeapSize,
+        total: performance.memory.totalJSHeapSize,
+      });
+
+      // Keep only last 100 entries
+      if (this.memoryUsage.length > 100) {
+        this.memoryUsage.shift();
+      }
+    }
+  },
+
+  logError(error) {
+    this.errors.push({
+      timestamp: Date.now(),
+      message: error.message,
+      stack: error.stack,
+    });
+
+    // Keep only last 50 errors
+    if (this.errors.length > 50) {
+      this.errors.shift();
+    }
+  },
+
+  getStats() {
+    return {
+      uptime: Date.now() - this.startTime,
+      memoryUsage:
+        this.memoryUsage.length > 0
+          ? this.memoryUsage[this.memoryUsage.length - 1]
+          : null,
+      errorCount: this.errors.length,
+      activeIntervals: cleanupRegistry.intervals.size,
+      activeTimeouts: cleanupRegistry.timeouts.size,
+    };
+  },
+};
+
+// Cleanup function to prevent memory leaks
+function cleanup() {
+  // Clear all intervals
+  cleanupRegistry.intervals.forEach((interval) => {
+    if (interval) clearInterval(interval);
+  });
+  cleanupRegistry.intervals.clear();
+
+  // Clear all timeouts
+  cleanupRegistry.timeouts.forEach((timeout) => {
+    if (timeout) clearTimeout(timeout);
+  });
+  cleanupRegistry.timeouts.clear();
+
+  // Remove all listeners
+  cleanupRegistry.listeners.forEach((listener) => {
+    if (listener && listener.element && listener.event && listener.handler) {
+      listener.element.removeEventListener(listener.event, listener.handler);
+    }
+  });
+  cleanupRegistry.listeners.clear();
+
+  // Pause all audio elements
+  cleanupRegistry.audioElements.forEach((audio) => {
+    if (audio && typeof audio.pause === "function") {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  });
+  cleanupRegistry.audioElements.clear();
+
+  console.log("🧹 Cleanup completed");
+}
+
+// Safe interval creation with cleanup registration
+function safeSetInterval(callback, delay) {
+  const interval = setInterval(callback, delay);
+  cleanupRegistry.intervals.add(interval);
+  return interval;
+}
+
+// Safe timeout creation with cleanup registration
+function safeSetTimeout(callback, delay) {
+  const timeout = setTimeout(callback, delay);
+  cleanupRegistry.timeouts.add(timeout);
+  return timeout;
+}
+
+// Safe event listener with cleanup registration
+function safeAddEventListener(element, event, handler) {
+  element.addEventListener(event, handler);
+  cleanupRegistry.listeners.add({ element, event, handler });
+}
+
+// Station Parameters System
+let stationParameters = {
+  powerLevel: 85,
+  oxygenLevel: 92,
+  temperature: 22,
+  radiationLevel: 0.15,
+  pressure: 1013,
+  humidity: 45,
+};
+
+// Real parameter effects based on task completion
+const parameterEffects = {
+  // Power-related tasks
+  "POWER GRID STABILIZATION": {
+    success: { powerLevel: 15, temperature: -2 },
+    failure: { powerLevel: -10, temperature: 5 },
+  },
+  "BACKUP POWER TEST": {
+    success: { powerLevel: 8 },
+    failure: { powerLevel: -5 },
+  },
+
+  // Oxygen-related tasks
+  "OXYGEN SYSTEM CALIBRATION": {
+    success: { oxygenLevel: 10, pressure: 5 },
+    failure: { oxygenLevel: -8, pressure: -10 },
+  },
+
+  // Temperature-related tasks
+  "THERMAL REGULATION": {
+    success: { temperature: -5, humidity: -3 },
+    failure: { temperature: 8, humidity: 5 },
+  },
+  "COOLING SYSTEM FAILURE": {
+    success: { temperature: -10, humidity: -5 },
+    failure: { temperature: 15, humidity: 10 },
+  },
+
+  // Radiation-related tasks
+  "RADIATION SHIELD MAINTENANCE": {
+    success: { radiationLevel: -0.1, powerLevel: -2 },
+    failure: { radiationLevel: 0.15, powerLevel: -5 },
+  },
+  "RADIATION LEAK": {
+    success: { radiationLevel: -0.2, oxygenLevel: -5 },
+    failure: { radiationLevel: 0.25, oxygenLevel: -10 },
+  },
+
+  // Pressure-related tasks
+  "PRESSURE SYSTEM BALANCE": {
+    success: { pressure: 20, oxygenLevel: 3 },
+    failure: { pressure: -30, oxygenLevel: -5 },
+  },
+
+  // Humidity-related tasks
+  "HUMIDITY REGULATION": {
+    success: { humidity: 10, temperature: -1 },
+    failure: { humidity: -15, temperature: 3 },
+  },
+
+  // System-wide tasks
+  "SYSTEM DIAGNOSTIC": {
+    success: { powerLevel: 3, oxygenLevel: 2, temperature: -1 },
+    failure: { powerLevel: -2, oxygenLevel: -2, temperature: 2 },
+  },
+  "COMMUNICATION TEST": {
+    success: { powerLevel: 2 },
+    failure: { powerLevel: -3 },
+  },
+  "SENSOR CALIBRATION": {
+    success: { temperature: -2, pressure: 5, humidity: 3 },
+    failure: { temperature: 3, pressure: -8, humidity: -5 },
+  },
+};
+
+// Parameter interdependencies (realistic relationships)
+const parameterInterdependencies = {
+  // Power affects other systems
+  powerLevel: {
+    affects: {
+      oxygenLevel: 0.1, // Power affects oxygen generation
+      temperature: 0.05, // Power affects cooling
+      pressure: 0.02, // Power affects pressure systems
+    },
+  },
+
+  // Temperature affects other parameters
+  temperature: {
+    affects: {
+      humidity: 0.3, // Higher temp = higher humidity
+      pressure: 0.1, // Higher temp = higher pressure
+      oxygenLevel: -0.05, // Higher temp = lower oxygen efficiency
+    },
+  },
+
+  // Pressure affects other systems
+  pressure: {
+    affects: {
+      oxygenLevel: 0.2, // Pressure affects oxygen distribution
+      humidity: 0.1, // Pressure affects humidity
+    },
+  },
+
+  // Radiation affects other systems
+  radiationLevel: {
+    affects: {
+      powerLevel: -0.1, // Radiation damages power systems
+      oxygenLevel: -0.05, // Radiation affects oxygen systems
+      temperature: 0.02, // Radiation increases temperature
+    },
+  },
+};
+
+// Task System
+let activeTasks = [];
+let taskHistory = [];
+let lastTaskCheck = Date.now();
+let taskCheckInterval = null;
+
+// Real-world API data sources for unpredictability
+const apiEndpoints = {
+  weather:
+    "https://api.openweathermap.org/data/2.5/weather?q=London&appid=demo&units=metric",
+  solarActivity: "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY",
+  bitcoinPrice:
+    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
+  earthquakeData:
+    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson",
+  spaceWeather: "https://services.swpc.noaa.gov/json/solar_wind_speed.json",
+};
+
+// Task types with different difficulty levels
+const taskTypes = {
+  CRITICAL: {
+    powerBalance: {
+      name: "POWER GRID STABILIZATION",
+      difficulty: 3,
+      timeLimit: 300000,
+    },
+    oxygenRegulation: {
+      name: "OXYGEN SYSTEM CALIBRATION",
+      difficulty: 2,
+      timeLimit: 240000,
+    },
+    temperatureControl: {
+      name: "THERMAL REGULATION",
+      difficulty: 2,
+      timeLimit: 180000,
+    },
+    radiationShield: {
+      name: "RADIATION SHIELD MAINTENANCE",
+      difficulty: 4,
+      timeLimit: 420000,
+    },
+    pressureStabilization: {
+      name: "PRESSURE SYSTEM BALANCE",
+      difficulty: 3,
+      timeLimit: 300000,
+    },
+    humidityControl: {
+      name: "HUMIDITY REGULATION",
+      difficulty: 1,
+      timeLimit: 120000,
+    },
+  },
+  MAINTENANCE: {
+    systemCheck: { name: "SYSTEM DIAGNOSTIC", difficulty: 1, timeLimit: 60000 },
+    backupPower: {
+      name: "BACKUP POWER TEST",
+      difficulty: 2,
+      timeLimit: 120000,
+    },
+    communicationTest: {
+      name: "COMMUNICATION TEST",
+      difficulty: 1,
+      timeLimit: 90000,
+    },
+    sensorCalibration: {
+      name: "SENSOR CALIBRATION",
+      difficulty: 2,
+      timeLimit: 150000,
+    },
+  },
+  EMERGENCY: {
+    containmentBreach: {
+      name: "CONTAINMENT BREACH",
+      difficulty: 5,
+      timeLimit: 600000,
+    },
+    powerSurge: {
+      name: "POWER SURGE DETECTED",
+      difficulty: 4,
+      timeLimit: 300000,
+    },
+    radiationLeak: { name: "RADIATION LEAK", difficulty: 5, timeLimit: 480000 },
+    systemOverload: {
+      name: "SYSTEM OVERLOAD",
+      difficulty: 4,
+      timeLimit: 360000,
+    },
+  },
+};
+
+// Random events that can affect station parameters
+const randomEvents = [
+  {
+    name: "SOLAR FLARE DETECTED",
+    effect: { radiationLevel: 0.3, powerLevel: -10 },
+  },
+  { name: "METEOROID IMPACT", effect: { pressure: -50, temperature: 5 } },
+  {
+    name: "EQUIPMENT MALFUNCTION",
+    effect: { powerLevel: -15, oxygenLevel: -5 },
+  },
+  { name: "ATMOSPHERIC DISTURBANCE", effect: { pressure: 30, humidity: 20 } },
+  { name: "ENERGY SURGE", effect: { powerLevel: 20, temperature: 8 } },
+  {
+    name: "COOLING SYSTEM FAILURE",
+    effect: { temperature: 15, humidity: -10 },
+  },
+  { name: "OXYGEN LEAK", effect: { oxygenLevel: -15, pressure: -20 } },
+  { name: "RADIATION SPIKE", effect: { radiationLevel: 0.25, powerLevel: -5 } },
+];
 
 async function initializeShogun() {
   try {
     // Show loading state
     document.title = "INITIALIZING SWAN STATION...";
+
+    // Add error boundary for unhandled errors
+    window.addEventListener("error", (event) => {
+      console.error("Unhandled error:", event.error);
+      addLog(`CRITICAL ERROR: ${event.error.message}`, "error");
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      console.error("Unhandled promise rejection:", event.reason);
+      performanceMonitor.logError(new Error(event.reason));
+      addLog(`CRITICAL ERROR: Promise rejected - ${event.reason}`, "error");
+    });
+
+    // Start performance monitoring
+    safeSetInterval(() => {
+      performanceMonitor.logMemory();
+
+      // Log performance stats every 5 minutes
+      const stats = performanceMonitor.getStats();
+      if (stats.errorCount > 10) {
+        console.warn("High error count detected:", stats.errorCount);
+      }
+    }, 300000); // Every 5 minutes
 
     // Initialize Shogun Core
     shogun = await window.initShogun({
@@ -14,7 +381,7 @@ async function initializeShogun() {
         "https://gun-manhattan.herokuapp.com/gun",
       ],
       localStorage: true,
-      scope: "swan-station",
+      scope: "shogun/swan-station",
       web3: { enabled: false },
       webauthn: { enabled: false },
       nostr: { enabled: false },
@@ -57,6 +424,8 @@ async function initializeShogun() {
     historyRef = gun.get("swan").get("history");
     statsRef = gun.get("swan").get("stats");
     chatRef = gun.get("swan").get("chat");
+    taskRef = gun.get("swan").get("tasks");
+    stationParamsRef = gun.get("swan").get("stationParams");
 
     console.log("Shogun Core initialized successfully");
 
@@ -77,6 +446,45 @@ async function initializeShogun() {
 
     // Initialize the system after shogun-core is ready
     initializeSystem();
+
+    // Ensure timer is visible and initialized
+    safeSetTimeout(() => {
+      if (bigTimer) {
+        console.log("Timer element found:", bigTimer);
+        console.log("Timer current value:", bigTimer.textContent);
+        console.log(
+          "Timer visibility:",
+          window.getComputedStyle(bigTimer).display
+        );
+
+        // Force timer to be visible
+        bigTimer.style.display = "block";
+        bigTimer.style.visibility = "visible";
+        bigTimer.style.opacity = "1";
+        bigTimer.style.position = "relative";
+        bigTimer.style.zIndex = "100";
+
+        // Set initial value if empty
+        if (!bigTimer.textContent || bigTimer.textContent === "108") {
+          bigTimer.textContent = "108";
+          console.log("Timer initialized to 108");
+        }
+
+        // Add a test message to verify timer is working
+        addLog("Timer system initialized - countdown active");
+      } else {
+        console.error("Timer element not found!");
+        addLog("ERROR: Timer element not found!", "error");
+      }
+    }, 1000);
+
+    // Initialize task system
+    initializeTaskSystem();
+
+    // Clean up corrupted tasks
+    safeSetTimeout(() => {
+      cleanupCorruptedTasks();
+    }, 2000);
 
     // Check if user is already logged in
     if (shogun.isLoggedIn()) {
@@ -113,13 +521,32 @@ async function getUserAlias(userPub) {
   });
 }
 
-// Audio setup - preload sounds
+// Audio setup - preload sounds with error handling and cleanup registration
 const siren = new Audio("assets/siren.mp3");
 const reset = new Audio("assets/reset.mp3");
 const tick = new Audio("assets/tick.mp3");
+
+// Register audio elements for cleanup
+cleanupRegistry.audioElements.add(siren);
+cleanupRegistry.audioElements.add(reset);
+cleanupRegistry.audioElements.add(tick);
+
+// Error handling for audio loading
+[siren, reset, tick].forEach((audio) => {
+  audio.addEventListener("error", (e) => {
+    console.warn("Audio loading failed:", e.target.src);
+  });
+});
+
 const buttonSounds = Array.from({ length: 8 }, (_, i) => {
   const audio = new Audio(`assets/typing_sounds/button${i + 1}.mp3`);
   audio.preload = "auto";
+  cleanupRegistry.audioElements.add(audio);
+
+  audio.addEventListener("error", (e) => {
+    console.warn("Button sound loading failed:", e.target.src);
+  });
+
   return audio;
 });
 
@@ -184,7 +611,10 @@ function calculateLevel(points) {
 }
 
 function stopApp() {
-  if (focusInterval) clearInterval(focusInterval);
+  if (focusInterval) {
+    clearInterval(focusInterval);
+    cleanupRegistry.intervals.delete(focusInterval);
+  }
   focusInterval = null;
   console.log("App UI focus paused.");
 }
@@ -192,18 +622,41 @@ function stopApp() {
 function startApp(alias) {
   stopApp(); // Prevent duplicate intervals
   console.log(`Operator ${alias} is active. App resumed.`);
-  currentUser = { alias: alias, points: 0, level: 1 };
+  currentUser = {
+    alias: alias,
+    points: 0,
+    level: 1,
+    connectionTime: Date.now(), // Record connection time
+  };
+
+  console.log(
+    `Operator ${alias} connected at ${new Date(
+      currentUser.connectionTime
+    ).toLocaleTimeString()}`
+  );
+  console.log(
+    `Task filter: Only showing tasks created after ${new Date(
+      currentUser.connectionTime - 30000
+    ).toLocaleTimeString()}`
+  );
 
   // Register the operator immediately
   registerOperator(alias);
 
+  // Load existing tasks from GunDB (after currentUser is set)
+  // Use a flag to prevent sync conflicts during initial load
+  window.initialTaskLoadComplete = false;
+  loadTasksFromGunDB();
+
   // Keep operator status updated
-  setInterval(() => {
-    operatorsRef.get(user.is.pub).put({
-      name: alias,
-      pub: user.is.pub,
-      lastSeen: Date.now(),
-    });
+  const operatorUpdateInterval = safeSetInterval(() => {
+    if (operatorsRef && user && user.is && user.is.pub) {
+      operatorsRef.get(user.is.pub).put({
+        name: alias,
+        pub: user.is.pub,
+        lastSeen: Date.now(),
+      });
+    }
   }, 30000);
 
   // Fetch or initialize user profile
@@ -228,10 +681,42 @@ function startApp(alias) {
     }
   });
 
-  // Show the main container
-  document.querySelector(".container").style.display = "flex";
+  // Show the main container and hide header
+  const container = document.querySelector(".container");
+  const headerSection = document.querySelector(".header-section");
+  const statsContainer = document.getElementById("statsContainer");
 
-  focusInterval = setInterval(() => {
+  if (container) {
+    container.style.display = "flex";
+    container.classList.add("centered");
+
+    // Hide log container when in timer mode
+    const logContainer = document.querySelector(".log-container");
+    if (logContainer) {
+      logContainer.style.display = "none";
+    }
+
+    // Hide input when timer is above 4
+    const input = document.querySelector(".input");
+    const prompt = document.querySelector(".prompt");
+    if (input && prompt) {
+      input.style.display = "none";
+      prompt.style.display = "none";
+    }
+  }
+
+  if (headerSection) {
+    headerSection.style.display = "none";
+  }
+
+  if (statsContainer) {
+    statsContainer.style.display = "none";
+  }
+
+  // Add a small menu button to access functions
+  addMenuButton();
+
+  focusInterval = safeSetInterval(() => {
     if (
       document.activeElement.tagName !== "INPUT" ||
       document.activeElement === input
@@ -239,6 +724,83 @@ function startApp(alias) {
       input.focus();
     }
   }, 100);
+}
+
+function addMenuButton() {
+  // Remove existing menu button if any
+  const existingButton = document.getElementById("menuButton");
+  if (existingButton) {
+    existingButton.remove();
+  }
+
+  // Create menu button
+  const menuButton = document.createElement("div");
+  menuButton.id = "menuButton";
+  menuButton.innerHTML = "[ MENU ]";
+  menuButton.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 255, 0, 0.1);
+    border: 1px solid #00ff00;
+    color: #00ff00;
+    padding: 5px 10px;
+    font-family: 'VT323', monospace;
+    cursor: pointer;
+    z-index: 2000;
+    font-size: 12px;
+  `;
+
+  menuButton.onclick = () => {
+    toggleMenu();
+  };
+
+  document.body.appendChild(menuButton);
+}
+
+function toggleMenu() {
+  const statsContainer = document.getElementById("statsContainer");
+  const headerSection = document.querySelector(".header-section");
+  const logContainer = document.querySelector(".log-container");
+
+  if (statsContainer && headerSection) {
+    if (
+      statsContainer.style.display === "none" ||
+      !statsContainer.style.display
+    ) {
+      // Show menu
+      statsContainer.style.display = "flex";
+      headerSection.style.display = "block";
+
+      // Show log container in menu mode
+      if (logContainer) {
+        logContainer.style.display = "block";
+      }
+
+      // Hide timer container
+      const container = document.querySelector(".container");
+      if (container) {
+        container.style.display = "none";
+        container.classList.remove("centered");
+      }
+    } else {
+      // Hide menu
+      statsContainer.style.display = "none";
+      headerSection.style.display = "none";
+
+      // Hide log container in timer mode
+      if (logContainer) {
+        logContainer.style.display = "none";
+      }
+
+      // Show timer container
+      const container = document.querySelector(".container");
+      if (container) {
+        container.style.display = "flex";
+        container.classList.add("centered");
+      }
+    }
+  }
 }
 
 // Authentication UI and Logic
@@ -449,8 +1011,14 @@ function addLog(message, type = "info") {
   }
 
   logEntry.textContent = `[${timestamp}]${operatorInfo} ${message}`;
-  logContainer.appendChild(logEntry);
-  logContainer.scrollTop = logContainer.scrollHeight;
+
+  // Only add to log container if it's visible (menu mode)
+  const logContainer = document.querySelector(".log-container");
+  if (logContainer && logContainer.style.display !== "none") {
+    logContainer.appendChild(logEntry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+  }
+
   console.log(`Log: ${message}`);
 
   // Add to history if it's an important event
@@ -467,10 +1035,23 @@ function addLog(message, type = "info") {
   }
 }
 
-// Typing sound function
+// Typing sound function with error handling and volume control
 function typeSound() {
-  const randomNumber = Math.floor(Math.random() * 7);
-  buttonSounds[randomNumber].play().catch(() => {});
+  try {
+    const randomNumber = Math.floor(Math.random() * 7);
+    const audio = buttonSounds[randomNumber];
+
+    if (audio && audio.readyState >= 2) {
+      // HAVE_CURRENT_DATA or higher
+      audio.volume = 0.3; // Reduce volume to 30%
+      audio.currentTime = 0; // Reset to start
+      audio.play().catch((error) => {
+        console.warn("Failed to play button sound:", error);
+      });
+    }
+  } catch (error) {
+    console.warn("Error in typeSound function:", error);
+  }
 }
 
 // Function to update timer
@@ -488,8 +1069,13 @@ function updateTimer(newValue, reason = "") {
 
 // Setup main timer listener to react to any change
 function setupTimerListener() {
+  console.log("Setting up timer listener...");
+  console.log("timerRef:", timerRef);
+  console.log("bigTimer element:", bigTimer);
+
   if (timerRef) {
     timerRef.on((data) => {
+      console.log("Timer data received:", data);
       if (data && typeof data.value === "number") {
         document.title = data.value;
         bigTimer.textContent = data.value; // Update the big timer display
@@ -500,14 +1086,24 @@ function setupTimerListener() {
         }
         addLog(updateMessage);
 
+        // Update input state based on timer value
+        updateInputState(data.value);
+
         if (data.value <= 4) {
-          siren.play().catch(() => {});
+          if (siren && siren.readyState >= 2) {
+            siren.volume = 0.5; // Reduce volume to 50%
+            siren.play().catch((error) => {
+              console.warn("Failed to play siren:", error);
+            });
+          }
           addLog("WARNING: System failure imminent!", "warning");
         }
 
         if (data.value > 4) {
-          siren.pause();
-          siren.currentTime = 0;
+          if (siren) {
+            siren.pause();
+            siren.currentTime = 0;
+          }
           // Stop system failure display if timer is reset above 4
           if (systemFailureActive) {
             stopSystemFailureDisplay();
@@ -515,6 +1111,45 @@ function setupTimerListener() {
         }
       }
     });
+  }
+}
+
+// Function to update input state based on timer value
+function updateInputState(timerValue) {
+  const input = document.querySelector(".input");
+  const prompt = document.querySelector(".prompt");
+  const container = document.querySelector(".container");
+
+  if (timerValue <= 4) {
+    // Enable input in last 4 minutes
+    input.disabled = false;
+    input.placeholder = "Enter code sequence...";
+    if (prompt) {
+      prompt.style.opacity = "1";
+      prompt.style.color = "#00ff00";
+      prompt.style.display = "block";
+    }
+    if (input) {
+      input.style.opacity = "1";
+      input.style.color = "#00ff00";
+      input.style.borderColor = "#00ff00";
+      input.style.display = "block";
+    }
+  } else {
+    // Disable input when timer > 4
+    input.disabled = true;
+    input.placeholder = "Code input locked until last 4 minutes";
+    if (prompt) {
+      prompt.style.opacity = "0.5";
+      prompt.style.color = "#666";
+      prompt.style.display = "none";
+    }
+    if (input) {
+      input.style.opacity = "0.5";
+      input.style.color = "#666";
+      input.style.borderColor = "#666";
+      input.style.display = "none";
+    }
   }
 }
 
@@ -532,75 +1167,116 @@ input.onkeydown = (event) => {
   typeSound();
   if (event.key === "Enter") {
     input.value = input.value.trim();
-    if (input.value === "4 8 15 16 23 42") {
-      // Stop system failure display if active
-      stopSystemFailureDisplay();
 
-      updateTimer(108, "code_correct");
+    // Check if input is allowed (only in last 4 minutes)
+    timerRef.once((timerData) => {
+      const currentTimer = timerData?.value || 108;
 
-      // Increment successful resets stat
-      statsRef.once((currentStats) => {
-        if (currentStats) {
-          statsRef.put({ resets: (currentStats.resets || 0) + 1 });
-        }
-      });
+      if (currentTimer > 4) {
+        addLog(
+          "WARNING: Code input only allowed in last 4 minutes of countdown",
+          "warning"
+        );
+        input.value = "";
+        return;
+      }
 
-      // Update user's personal points and streak
-      user.get("profile").once((profile) => {
-        let pointsToAdd = 1;
-        const newStreak = (profile.resetStreak || 0) + 1;
+      if (input.value === "4 8 15 16 23 42") {
+        // Stop system failure display if active
+        stopSystemFailureDisplay();
 
-        // Check if user was first to reset
-        timerRef.once((timerData) => {
-          if (timerData.updatedBy !== currentUser.alias) {
-            pointsToAdd += 2; // +2 for being first
-            addLog("First to reset! +2 bonus points.", "success");
+        updateTimer(108, "code_correct");
+
+        // Increment successful resets stat
+        statsRef.once((currentStats) => {
+          if (currentStats) {
+            statsRef.put({ resets: (currentStats.resets || 0) + 1 });
+          }
+        });
+
+        // Update user's personal points and streak
+        user.get("profile").once((profile) => {
+          let pointsToAdd = 1; // Base points for successful reset
+          const newStreak = (profile.resetStreak || 0) + 1;
+
+          // Check station parameters balance for bonus points
+          const parameterBonus = calculateParameterBalanceBonus();
+          if (parameterBonus > 0) {
+            pointsToAdd += parameterBonus;
+            addLog(
+              `Station parameters balanced! +${parameterBonus} bonus points.`,
+              "success"
+            );
+          } else {
+            addLog(
+              "Station parameters need attention. Base points only.",
+              "warning"
+            );
           }
 
-          if (newStreak % 4 === 0 && newStreak > 0) {
-            pointsToAdd += 1; // +1 bonus for 4-in-a-row streak
-            addLog("Reset streak x4! +1 bonus point.", "success");
-          }
+          // Check if user was first to reset
+          timerRef.once((timerData) => {
+            if (timerData.updatedBy !== currentUser.alias) {
+              pointsToAdd += 2; // +2 for being first
+              addLog("First to reset! +2 bonus points.", "success");
+            }
 
-          const newPoints = (profile.points || 0) + pointsToAdd;
-          const newLevel = getLevelFromPoints(newPoints);
+            if (newStreak % 4 === 0 && newStreak > 0) {
+              pointsToAdd += 1; // +1 bonus for 4-in-a-row streak
+              addLog("Reset streak x4! +1 bonus point.", "success");
+            }
 
-          if (newLevel > profile.level) {
-            addLog(`LEVEL UP! You are now Level ${newLevel}.`, "success");
-          }
+            const newPoints = (profile.points || 0) + pointsToAdd;
+            const newLevel = getLevelFromPoints(newPoints);
 
-          const newProfile = {
-            points: newPoints,
-            level: newLevel,
-            resetStreak: newStreak,
-            resets: (profile.resets || 0) + 1,
-          };
-          // Update user's private profile
-          user.get("profile").put(newProfile);
+            if (newLevel > profile.level) {
+              addLog(`LEVEL UP! You are now Level ${newLevel}.`, "success");
+            }
 
-          // Update the public leaderboard with public data
-          gun.get("leaderboard").get(currentUser.alias).put({
-            points: newPoints,
-            level: newLevel,
+            const newProfile = {
+              points: newPoints,
+              level: newLevel,
+              resetStreak: newStreak,
+              resets: (profile.resets || 0) + 1,
+            };
+            // Update user's private profile
+            user.get("profile").put(newProfile);
+
+            // Update the public leaderboard with public data
+            gun.get("leaderboard").get(currentUser.alias).put({
+              points: newPoints,
+              level: newLevel,
+            });
           });
         });
-      });
 
-      input.value = "";
-      siren.pause();
-      siren.currentTime = 0;
-      reset.play().catch(() => {});
-      addLog("Numbers entered correctly. Timer reset.", "success");
-    } else if (input.value !== "") {
-      addLog("Incorrect code sequence. Protocol penalty initiated.", "warning");
-      updateTimer(4, "code_incorrect"); // Set timer to 4 as penalty
+        input.value = "";
+        if (siren) {
+          siren.pause();
+          siren.currentTime = 0;
+        }
+        if (reset && reset.readyState >= 2) {
+          reset.volume = 0.6; // Reduce volume to 60%
+          reset.play().catch((error) => {
+            console.warn("Failed to play reset sound:", error);
+          });
+        }
+        addLog("Numbers entered correctly. Timer reset.", "success");
+      } else if (input.value !== "") {
+        addLog("Incorrect code sequence. Input ignored.", "warning");
 
-      // Reset the user's streak on incorrect code
-      user.get("profile").put({ resetStreak: 0 });
+        // Reset the user's streak on incorrect code
+        user.get("profile").put({ resetStreak: 0 });
 
-      input.value = "";
-      siren.play().catch(() => {});
-    }
+        input.value = "";
+        if (siren && siren.readyState >= 2) {
+          siren.volume = 0.5;
+          siren.play().catch((error) => {
+            console.warn("Failed to play siren for incorrect code:", error);
+          });
+        }
+      }
+    });
   }
 };
 
@@ -632,11 +1308,21 @@ function decrementTimer() {
     // Normal decrement
     if (data.value > 1) {
       updateTimer(data.value - 1, "timer_tick");
-      tick.play().catch(() => {});
+      if (tick && tick.readyState >= 2) {
+        tick.volume = 0.2; // Very low volume for tick sound
+        tick.play().catch((error) => {
+          console.warn("Failed to play tick sound:", error);
+        });
+      }
     } else if (data.value <= 1 && data.value > 0) {
       // Timer has reached 0, trigger system failure
       triggerSystemFailure();
-      tick.play().catch(() => {});
+      if (tick && tick.readyState >= 2) {
+        tick.volume = 0.2;
+        tick.play().catch((error) => {
+          console.warn("Failed to play tick sound for system failure:", error);
+        });
+      }
     }
   });
 }
@@ -725,20 +1411,40 @@ function showProfile() {
   const overlay = document.createElement("div");
   overlay.className = "overlay";
   overlay.innerHTML = `
-        <div class="chat-modal">
+        <div class="chat-modal profile-modal">
             <div class="terminal-header">> OPERATOR PROFILE</div>
-            <div class="terminal-content profile-content">
+            <div class="terminal-content">
+                <div class="profile-content">
                 <div class="profile-section">
                     <div class="profile-avatar">
                         <img id="operatorAvatar" src="" alt="Operator Avatar" />
+                        <div class="avatar-status" id="avatarStatus">ONLINE</div>
                     </div>
                     <div class="profile-info">
-                        <div class="info-row">ALIAS: <span id="profileAlias"></span></div>
-                        <div class="info-row">LEVEL: <span id="profileLevel"></span></div>
-                        <div class="info-row">POINTS: <span id="profilePoints"></span></div>
-                        <div class="info-row">LOCATION: <span id="profileLocation"></span></div>
+                        <div class="info-row">
+                            <span class="info-label">ALIAS:</span> 
+                            <span class="info-value" id="profileAlias"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">LEVEL:</span> 
+                            <span class="info-value" id="profileLevel"></span>
+                            <span class="level-progress" id="levelProgress"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">POINTS:</span> 
+                            <span class="info-value" id="profilePoints"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">LOCATION:</span> 
+                            <span class="info-value" id="profileLocation"></span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">JOINED:</span> 
+                            <span class="info-value" id="profileJoined"></span>
+                        </div>
                     </div>
                 </div>
+                
                 <div class="profile-stats">
                     <div class="section-header">OPERATOR STATISTICS</div>
                     <div class="stats-grid">
@@ -746,14 +1452,46 @@ function showProfile() {
                             <div class="stat-label">SUCCESSFUL RESETS</div>
                             <div class="stat-value" id="profileResets">0</div>
                         </div>
+                        <div class="stat-item">
+                            <div class="stat-label">TASKS COMPLETED</div>
+                            <div class="stat-value" id="profileTasks">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">NETWORK CONTRIBUTION</div>
+                            <div class="stat-value" id="profileContribution">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">UPTIME</div>
+                            <div class="stat-value" id="profileUptime">0h</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">RANK</div>
+                            <div class="stat-value" id="profileRank">#--</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">REPUTATION</div>
+                            <div class="stat-value" id="profileReputation">100%</div>
+                        </div>
                     </div>
                 </div>
+                
                 <div class="profile-actions">
-                    <input type="text" id="locationInput" placeholder="Enter your location..." />
-                    <button id="updateLocation" class="terminal-button">UPDATE LOCATION</button>
-                    <button id="getGPSLocation" class="terminal-button gps-button">📍 GET GPS LOCATION</button>
-                    <button id="selectLocation" class="terminal-button location-button">🌍 SELECT LOCATION</button>
-                    <button id="exportPair" class="terminal-button">EXPORT PAIR</button>
+                    <div class="location-section">
+                        <div class="section-subheader">LOCATION MANAGEMENT</div>
+                        <div class="location-input-group">
+                            <input type="text" id="locationInput" placeholder="Enter your location..." />
+                            <button id="updateLocation" class="terminal-button primary-button">UPDATE LOCATION</button>
+                        </div>
+                        <div class="location-buttons">
+                            <button id="getGPSLocation" class="terminal-button gps-button">📍 GET GPS LOCATION</button>
+                            <button id="selectLocation" class="terminal-button location-button">🌍 SELECT LOCATION</button>
+                        </div>
+                    </div>
+                    <div class="profile-actions-secondary">
+                        <button id="exportPair" class="terminal-button secondary-button">EXPORT PAIR</button>
+                        <button id="refreshProfile" class="terminal-button secondary-button">🔄 REFRESH</button>
+                    </div>
+                </div>
                 </div>
             </div>
             <div class="terminal-footer">CLOSE</div>
@@ -770,7 +1508,17 @@ function showProfile() {
         const profilePoints = document.getElementById("profilePoints");
         const profileLocation = document.getElementById("profileLocation");
         const profileResets = document.getElementById("profileResets");
+        const profileTasks = document.getElementById("profileTasks");
+        const profileContribution = document.getElementById(
+          "profileContribution"
+        );
+        const profileUptime = document.getElementById("profileUptime");
+        const profileRank = document.getElementById("profileRank");
+        const profileReputation = document.getElementById("profileReputation");
+        const profileJoined = document.getElementById("profileJoined");
+        const levelProgress = document.getElementById("levelProgress");
         const operatorAvatar = document.getElementById("operatorAvatar");
+        const avatarStatus = document.getElementById("avatarStatus");
 
         if (profileAlias) profileAlias.textContent = currentUser.alias;
         if (profileLevel) profileLevel.textContent = currentUser.level;
@@ -778,6 +1526,28 @@ function showProfile() {
         if (profileLocation)
           profileLocation.textContent = profile.location || "NOT SET";
         if (profileResets) profileResets.textContent = profile.resets || 0;
+        if (profileTasks)
+          profileTasks.textContent = profile.tasksCompleted || 0;
+        if (profileContribution)
+          profileContribution.textContent = profile.networkContribution || 0;
+        if (profileUptime) profileUptime.textContent = profile.uptime || "0h";
+        if (profileRank) profileRank.textContent = profile.rank || "#--";
+        if (profileReputation)
+          profileReputation.textContent = profile.reputation || "100%";
+        if (profileJoined)
+          profileJoined.textContent = profile.joinedDate || "UNKNOWN";
+        if (avatarStatus) avatarStatus.textContent = "ONLINE";
+
+        // Calculate level progress
+        if (levelProgress) {
+          const pointsToNextLevel = Math.max(
+            0,
+            (currentUser.level + 1) * 10 - currentUser.points
+          );
+          levelProgress.textContent = `(${pointsToNextLevel} TO LVL ${
+            currentUser.level + 1
+          })`;
+        }
 
         // Genera e imposta l'avatar automaticamente
         if (operatorAvatar) {
@@ -1141,14 +1911,27 @@ function showProfile() {
     document.getElementById("cancelPairLogin").onclick = () => overlay.remove();
   }
 
+  // Refresh profile handler
+  document.getElementById("refreshProfile").onclick = () => {
+    updateProfile();
+    addLog("Profile refreshed", "info");
+  };
+
   // Chiudi il profilo
   overlay.querySelector(".terminal-footer").onclick = () => overlay.remove();
+
+  // Add touch-friendly close functionality
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
 
   // Aggiorna il profilo inizialmente
   updateProfile();
 }
 
-// Aggiorna updateStatsUI per includere il pulsante del profilo
+// Aggiorna updateStatsUI per includere il pulsante del profilo e il sistema di task
 function updateStatsUI(newStats) {
   stats = newStats;
   const pointsToNextLevel = currentUser
@@ -1173,27 +1956,70 @@ function updateStatsUI(newStats) {
                 }
             </div>
             <div class="stats-buttons">
-                <button id="profileBtn" class="stats-button mobile-visible">[ PROFILE ]</button>
-                <button id="globalStatsBtn" class="stats-button mobile-visible">[ GLOBAL STATS ]</button>
-                <button id="leaderboardBtn" class="stats-button mobile-visible">[ LEADERBOARD ]</button>
-                <button id="historyBtn" class="stats-button mobile-visible">[ HISTORY ]</button>
+                <button id="profileBtn" class="stats-button">[ PROFILE ]</button>
+                <button id="globalStatsBtn" class="stats-button">[ GLOBAL STATS ]</button>
+                <button id="leaderboardBtn" class="stats-button">[ LEADERBOARD ]</button>
+                <button id="historyBtn" class="stats-button">[ HISTORY ]</button>
+                <button id="tasksBtn" class="stats-button">[ TASKS ]</button>
                 <button id="chatBtn" class="stats-button">[ CHAT ]</button>
                 <button id="networkBtn" class="stats-button">[ NETWORK ]</button>
                 <button id="mapBtn" class="stats-button">[ MAP ]</button>
-                <button id="moreBtn" class="stats-button mobile-more">[ MORE ]</button>
             </div>
         </div>
     `;
 
   // Add click handlers for all buttons
-  document.getElementById("profileBtn").onclick = showProfile;
-  document.getElementById("globalStatsBtn").onclick = showGlobalStats;
-  document.getElementById("leaderboardBtn").onclick = showLeaderboard;
-  document.getElementById("historyBtn").onclick = showHistory;
-  document.getElementById("chatBtn").onclick = showChat;
-  document.getElementById("networkBtn").onclick = showNetworkAnalytics;
-  document.getElementById("mapBtn").onclick = showOperatorsMap;
-  document.getElementById("moreBtn").onclick = toggleMoreMenu;
+  const profileBtn = document.getElementById("profileBtn");
+  const globalStatsBtn = document.getElementById("globalStatsBtn");
+  const leaderboardBtn = document.getElementById("leaderboardBtn");
+  const historyBtn = document.getElementById("historyBtn");
+  const tasksBtn = document.getElementById("tasksBtn");
+  const chatBtn = document.getElementById("chatBtn");
+  const networkBtn = document.getElementById("networkBtn");
+  const mapBtn = document.getElementById("mapBtn");
+
+  if (profileBtn) profileBtn.onclick = showProfile;
+  if (globalStatsBtn) globalStatsBtn.onclick = showGlobalStats;
+  if (leaderboardBtn) leaderboardBtn.onclick = showLeaderboard;
+  if (historyBtn) historyBtn.onclick = showHistory;
+  if (tasksBtn) tasksBtn.onclick = showTaskSystem;
+  if (chatBtn) chatBtn.onclick = showChat;
+  if (networkBtn) networkBtn.onclick = showNetworkAnalytics;
+  if (mapBtn) mapBtn.onclick = showOperatorsMap;
+
+  // Debug: Check if all buttons were found (only log once)
+  if (!window.buttonsInitialized) {
+    console.log("Button elements found:", {
+      profileBtn: !!profileBtn,
+      globalStatsBtn: !!globalStatsBtn,
+      leaderboardBtn: !!leaderboardBtn,
+      historyBtn: !!historyBtn,
+      tasksBtn: !!tasksBtn,
+      chatBtn: !!chatBtn,
+      networkBtn: !!networkBtn,
+      mapBtn: !!mapBtn,
+    });
+
+    // Test if buttons are clickable
+    if (profileBtn) {
+      profileBtn.addEventListener("click", () => {
+        console.log("✅ Profile button clicked successfully!");
+      });
+    }
+
+    // Test task buttons if they exist
+    setTimeout(() => {
+      const acceptButtons = document.querySelectorAll(".task-btn.accept");
+      acceptButtons.forEach((btn, index) => {
+        btn.addEventListener("click", () => {
+          console.log(`✅ Task ACCEPT button ${index} clicked successfully!`);
+        });
+      });
+      console.log(`Found ${acceptButtons.length} ACCEPT buttons`);
+    }, 1000);
+
+    window.buttonsInitialized = true;
+  }
 }
 
 function showGlobalStats() {
@@ -1233,7 +2059,8 @@ function triggerSystemFailure() {
       });
     }
   });
-  updateTimer(4, "system_failure");
+  // No penalty countdown - system failure stays at 0
+  updateTimer(0, "system_failure");
 
   // Update user's profile statistics on system failure
   user.get("profile").once((profile) => {
@@ -1301,45 +2128,6 @@ function updateConnectionStatus(status, className) {
   }
 }
 
-// Toggle more menu for mobile
-function toggleMoreMenu() {
-  const chatBtn = document.getElementById("chatBtn");
-  const networkBtn = document.getElementById("networkBtn");
-  const moreBtn = document.getElementById("moreBtn");
-
-  if (chatBtn && networkBtn && moreBtn) {
-    const isExpanded = chatBtn.classList.contains("mobile-visible");
-
-    if (isExpanded) {
-      // Collapse menu
-      chatBtn.classList.remove("mobile-visible");
-      networkBtn.classList.remove("mobile-visible");
-      moreBtn.textContent = "[ MORE ]";
-
-      // Reset visual feedback
-      moreBtn.style.background = "#00aa00";
-      moreBtn.style.boxShadow = "none";
-
-      // Add smooth transition
-      setTimeout(() => {
-        chatBtn.style.display = "none";
-        networkBtn.style.display = "none";
-      }, 200);
-    } else {
-      // Expand menu
-      chatBtn.style.display = "inline-block";
-      networkBtn.style.display = "inline-block";
-      chatBtn.classList.add("mobile-visible");
-      networkBtn.classList.add("mobile-visible");
-      moreBtn.textContent = "[ LESS ]";
-
-      // Add visual feedback
-      moreBtn.style.background = "#008800";
-      moreBtn.style.boxShadow = "0 0 15px rgba(0, 255, 0, 0.5)";
-    }
-  }
-}
-
 // Network Analytics Function
 function showNetworkAnalytics() {
   const overlay = document.createElement("div");
@@ -1347,6 +2135,39 @@ function showNetworkAnalytics() {
   overlay.innerHTML = `
     <div class="network-analytics-modal">
       <h2>&gt; DECENTRALIZED NETWORK ANALYTICS</h2>
+      
+      <div class="network-section">
+        <h3>GUNDB RELAYS</h3>
+        <div class="relay-management">
+          <div class="relay-list" id="relayList">
+            <div class="relay-item">
+              <div class="relay-status connected"></div>
+              <div class="relay-url">https://relay.shogun-eco.xyz/gun</div>
+              <div class="relay-actions">
+                <button class="relay-remove-btn" data-url="https://relay.shogun-eco.xyz/gun">REMOVE</button>
+              </div>
+            </div>
+            <div class="relay-item">
+              <div class="relay-status connected"></div>
+              <div class="relay-url">https://peer.wallie.io/gun</div>
+              <div class="relay-actions">
+                <button class="relay-remove-btn" data-url="https://peer.wallie.io/gun">REMOVE</button>
+              </div>
+            </div>
+            <div class="relay-item">
+              <div class="relay-status connected"></div>
+              <div class="relay-url">https://gun-manhattan.herokuapp.com/gun</div>
+              <div class="relay-actions">
+                <button class="relay-remove-btn" data-url="https://gun-manhattan.herokuapp.com/gun">REMOVE</button>
+              </div>
+            </div>
+          </div>
+          <div class="add-relay-section">
+            <input type="text" id="newRelayUrl" placeholder="https://your-relay.com/gun" class="relay-input">
+            <button id="addRelayBtn" class="terminal-button">ADD RELAY</button>
+          </div>
+        </div>
+      </div>
       
       <div class="network-section">
         <h3>PEER CONNECTIONS</h3>
@@ -1420,6 +2241,9 @@ function showNetworkAnalytics() {
   // Initialize network analytics
   initializeNetworkMetrics();
 
+  // Initialize relay management
+  initializeRelayManagement();
+
   overlay.querySelector("#closeNetwork").onclick = () => overlay.remove();
 }
 
@@ -1481,6 +2305,369 @@ function showOperatorsMap() {
   };
 
   overlay.querySelector("#closeMap").onclick = () => overlay.remove();
+
+  // Add touch-friendly close functionality
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+}
+
+// Show Task System Function
+function showTaskSystem() {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="task-system-modal">
+      <h2>&gt; STATION TASK MANAGEMENT SYSTEM</h2>
+      
+      <div class="task-system-grid">
+        <div class="task-section">
+          <h3>STATION PARAMETERS</h3>
+          <div id="stationParamsDisplay" class="station-params">
+            Loading parameters...
+          </div>
+        </div>
+        
+        <div class="task-section">
+          <h3>ACTIVE TASKS</h3>
+          <div id="taskDisplay" class="task-list">
+            Loading tasks...
+          </div>
+        </div>
+      </div>
+      
+      <div class="task-controls">
+        <button id="refreshTasksBtn" class="terminal-button">REFRESH TASKS</button>
+        <button id="forceTaskBtn" class="terminal-button">FORCE NEW TASK</button>
+        <button id="taskHistoryBtn" class="terminal-button">TASK HISTORY</button>
+      </div>
+      
+      <div class="task-info">
+        <h3>TASK SYSTEM INFO</h3>
+        <div class="info-grid">
+          <div class="info-item">
+            <span class="info-label">Active Tasks:</span>
+            <span class="info-value" id="activeTaskCount">0</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Completed Today:</span>
+            <span class="info-value" id="completedToday">0</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Success Rate:</span>
+            <span class="info-value" id="successRate">0%</span>
+          </div>
+          <div class="info-item">
+            <span class="info-label">Last Event:</span>
+            <span class="info-value" id="lastEvent">None</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="button" id="closeTaskSystem">CLOSE</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Initialize task system display
+  updateStationParametersDisplay();
+  updateTaskDisplay();
+  updateTaskSystemInfo();
+
+  // Add button handlers
+  overlay.querySelector("#refreshTasksBtn").onclick = () => {
+    updateTaskDisplay();
+    updateTaskSystemInfo();
+    addLog("Task system refreshed", "info");
+  };
+
+  overlay.querySelector("#forceTaskBtn").onclick = () => {
+    if (activeTasks.length < 3) {
+      // Force generate a new task
+      const taskType = Math.random();
+      let category, taskKey;
+
+      if (taskType < 0.2) {
+        category = "EMERGENCY";
+        const emergencyTasks = Object.keys(taskTypes.EMERGENCY);
+        taskKey =
+          emergencyTasks[Math.floor(Math.random() * emergencyTasks.length)];
+      } else if (taskType < 0.6) {
+        category = "CRITICAL";
+        const criticalTasks = Object.keys(taskTypes.CRITICAL);
+        taskKey =
+          criticalTasks[Math.floor(Math.random() * criticalTasks.length)];
+      } else {
+        category = "MAINTENANCE";
+        const maintenanceTasks = Object.keys(taskTypes.MAINTENANCE);
+        taskKey =
+          maintenanceTasks[Math.floor(Math.random() * maintenanceTasks.length)];
+      }
+
+      const task = taskTypes[category][taskKey];
+      const taskId = crypto.randomUUID();
+
+      const newTask = {
+        id: taskId,
+        type: category,
+        name: task.name,
+        difficulty: task.difficulty,
+        timeLimit: task.timeLimit,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + task.timeLimit,
+        assignedTo: null,
+        completed: false,
+        failed: false,
+        parameters: generateTaskParameters(category, taskKey),
+        forced: true,
+      };
+
+      taskRef.get(taskId).put(newTask);
+      activeTasks.push(newTask);
+      updateTaskDisplay();
+      updateTaskSystemInfo();
+
+      addLog(`FORCED TASK: ${task.name} (${category})`, "warning");
+    } else {
+      addLog("ERROR: Maximum active tasks reached", "error");
+    }
+  };
+
+  overlay.querySelector("#taskHistoryBtn").onclick = () => {
+    showTaskHistory();
+  };
+
+  overlay.querySelector("#closeTaskSystem").onclick = () => overlay.remove();
+
+  // Update task system info periodically
+  const updateInterval = safeSetInterval(() => {
+    if (!document.querySelector(".task-system-modal")) {
+      clearInterval(updateInterval);
+      cleanupRegistry.intervals.delete(updateInterval);
+      return;
+    }
+    updateTaskSystemInfo();
+  }, 5000);
+
+  // Update task display every second for countdown
+  const taskUpdateInterval = safeSetInterval(() => {
+    if (!document.querySelector(".task-system-modal")) {
+      clearInterval(taskUpdateInterval);
+      cleanupRegistry.intervals.delete(taskUpdateInterval);
+      return;
+    }
+    updateTaskDisplay();
+  }, 1000);
+}
+
+function updateTaskSystemInfo() {
+  const activeTaskCount = document.getElementById("activeTaskCount");
+  const completedToday = document.getElementById("completedToday");
+  const successRate = document.getElementById("successRate");
+  const lastEvent = document.getElementById("lastEvent");
+
+  if (activeTaskCount) activeTaskCount.textContent = activeTasks.length;
+
+  if (completedToday) {
+    const today = new Date().toDateString();
+    const todayTasks = taskHistory.filter(
+      (task) =>
+        new Date(task.createdAt).toDateString() === today && task.completed
+    );
+    completedToday.textContent = todayTasks.length;
+  }
+
+  if (successRate) {
+    const completedTasks = taskHistory.filter(
+      (task) => task.completed || task.failed
+    );
+    if (completedTasks.length > 0) {
+      const successful = completedTasks.filter((task) => task.completed).length;
+      const rate = Math.round((successful / completedTasks.length) * 100);
+      successRate.textContent = `${rate}%`;
+    } else {
+      successRate.textContent = "0%";
+    }
+  }
+
+  if (lastEvent) {
+    lastEvent.textContent = stationParameters.lastEvent || "None";
+  }
+}
+
+function showTaskHistory() {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="task-history-modal">
+      <h2>&gt; TASK HISTORY</h2>
+      
+      <div class="history-filters">
+        <button class="filter-btn active" data-filter="all">ALL</button>
+        <button class="filter-btn" data-filter="completed">COMPLETED</button>
+        <button class="filter-btn" data-filter="failed">FAILED</button>
+        <button class="filter-btn" data-filter="emergency">EMERGENCY</button>
+      </div>
+      
+      <div class="task-history-list" id="taskHistoryList">
+        Loading history...
+      </div>
+      
+      <div class="button" id="closeTaskHistory">CLOSE</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Load task history from GunDB
+  const historyTasks = [];
+  taskRef.map().once((task, id) => {
+    if (task && (task.completed || task.failed)) {
+      historyTasks.push(task);
+    }
+  });
+
+  setTimeout(() => {
+    displayTaskHistory(historyTasks, "all");
+  }, 1000);
+
+  // Add filter handlers
+  const filterBtns = overlay.querySelectorAll(".filter-btn");
+  filterBtns.forEach((btn) => {
+    btn.onclick = () => {
+      filterBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      displayTaskHistory(historyTasks, btn.dataset.filter);
+    };
+  });
+
+  overlay.querySelector("#closeTaskHistory").onclick = () => overlay.remove();
+}
+
+function displayTaskHistory(tasks, filter) {
+  const historyList = document.getElementById("taskHistoryList");
+  if (!historyList) return;
+
+  // Ensure tasks is an array
+  if (!Array.isArray(tasks)) {
+    console.warn("displayTaskHistory: tasks is not an array", tasks);
+    tasks = [];
+  }
+
+  let filteredTasks = tasks;
+
+  switch (filter) {
+    case "completed":
+      filteredTasks = tasks.filter((task) => task.completed);
+      break;
+    case "failed":
+      filteredTasks = tasks.filter((task) => task.failed);
+      break;
+    case "emergency":
+      filteredTasks = tasks.filter((task) => task.type === "EMERGENCY");
+      break;
+  }
+
+  if (filteredTasks.length === 0) {
+    historyList.innerHTML = '<div class="no-history">No tasks found</div>';
+    return;
+  }
+
+  // Sort by creation date, newest first
+  filteredTasks.sort((a, b) => b.createdAt - a.createdAt);
+
+  const historyHTML = filteredTasks
+    .slice(0, 20)
+    .map((task) => {
+      const date = new Date(task.createdAt).toLocaleString();
+      const duration = Math.floor((task.expiresAt - task.createdAt) / 60000);
+
+      return `
+      <div class="history-task-item ${
+        task.completed ? "completed" : "failed"
+      } ${(task.type || "maintenance").toLowerCase()}">
+        <div class="history-task-header">
+          <span class="history-task-name">${task.name || "Unknown Task"}</span>
+          <span class="history-task-type">${task.type || "MAINTENANCE"}</span>
+        </div>
+        <div class="history-task-details">
+          <span class="history-task-date">${date}</span>
+          <span class="history-task-duration">${duration}min</span>
+          <span class="history-task-assignee">${
+            task.assignedTo || "Unassigned"
+          }</span>
+          <span class="history-task-status">${
+            task.completed ? "COMPLETED" : "FAILED"
+          }</span>
+        </div>
+      </div>
+    `;
+    })
+    .join("");
+
+  historyList.innerHTML = historyHTML;
+}
+
+function showTaskNotification(task) {
+  // Ensure task is valid
+  if (!task || typeof task !== "object") {
+    console.warn("showTaskNotification: invalid task", task);
+    return;
+  }
+
+  // Create notification element
+  const notification = document.createElement("div");
+
+  if (task.completed) {
+    notification.className = `task-notification completed`;
+    notification.innerHTML = `
+      <div class="notification-header">
+        <strong>✅ TASK COMPLETED: ${task.name || "Unknown Task"}</strong>
+      </div>
+      <div class="notification-details">
+        Type: ${task.type || "MAINTENANCE"} | Difficulty: ${
+      task.difficulty || 1
+    }/5 | Completed by another operator
+      </div>
+    `;
+  } else if (task.failed) {
+    notification.className = `task-notification failed`;
+    notification.innerHTML = `
+      <div class="notification-header">
+        <strong>❌ TASK FAILED: ${task.name || "Unknown Task"}</strong>
+      </div>
+      <div class="notification-details">
+        Type: ${task.type || "MAINTENANCE"} | Difficulty: ${
+      task.difficulty || 1
+    }/5 | Failed by another operator
+      </div>
+    `;
+  } else {
+    notification.className = `task-notification ${(
+      task.type || "maintenance"
+    ).toLowerCase()}`;
+    notification.innerHTML = `
+      <div class="notification-header">
+        <strong>NEW TASK: ${task.name || "Unknown Task"}</strong>
+      </div>
+      <div class="notification-details">
+        Type: ${task.type || "MAINTENANCE"} | Difficulty: ${
+      task.difficulty || 1
+    }/5 | Time: ${Math.floor((task.timeLimit || 300000) / 60000)}min
+      </div>
+    `;
+  }
+
+  // Add to page
+  document.body.appendChild(notification);
+
+  // Remove after 5 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
+    }
+  }, 5000);
 }
 
 // Initialize Operators Map
@@ -1898,7 +3085,7 @@ function initializeNetworkMetrics() {
   let userProfileCount = 0;
 
   // Update session duration every second
-  const sessionInterval = setInterval(() => {
+  const sessionInterval = safeSetInterval(() => {
     const duration = Math.floor((Date.now() - sessionStart) / 60000);
     const durationElement = document.getElementById("sessionDuration");
     if (durationElement) {
@@ -1999,6 +3186,173 @@ function initializeNetworkMetrics() {
       }
     });
   }
+}
+
+// Initialize relay management
+function initializeRelayManagement() {
+  const addRelayBtn = document.getElementById("addRelayBtn");
+  const newRelayUrlInput = document.getElementById("newRelayUrl");
+  const relayList = document.getElementById("relayList");
+
+  // Store current relays for management
+  let currentRelays = [
+    "https://relay.shogun-eco.xyz/gun",
+    "https://peer.wallie.io/gun",
+    "https://gun-manhattan.herokuapp.com/gun",
+  ];
+
+  // Add relay functionality
+  if (addRelayBtn && newRelayUrlInput) {
+    addRelayBtn.addEventListener("click", () => {
+      const newRelayUrl = newRelayUrlInput.value.trim();
+
+      if (!newRelayUrl) {
+        addLog("ERROR: Relay URL cannot be empty", "error");
+        return;
+      }
+
+      // Validate URL format
+      if (
+        !newRelayUrl.startsWith("https://") &&
+        !newRelayUrl.startsWith("http://")
+      ) {
+        addLog("ERROR: Relay URL must start with http:// or https://", "error");
+        return;
+      }
+
+      // Check if relay already exists
+      if (currentRelays.includes(newRelayUrl)) {
+        addLog("ERROR: Relay already exists", "error");
+        return;
+      }
+
+      // Add new relay to GunDB
+      try {
+        // Add to current relays array
+        currentRelays.push(newRelayUrl);
+
+        // Update GunDB peers
+        gun.opt({ peers: currentRelays });
+
+        // Add to UI
+        const newRelayItem = document.createElement("div");
+        newRelayItem.className = "relay-item";
+        newRelayItem.innerHTML = `
+          <div class="relay-status connecting"></div>
+          <div class="relay-url">${newRelayUrl}</div>
+          <div class="relay-actions">
+            <button class="relay-remove-btn" data-url="${newRelayUrl}">REMOVE</button>
+          </div>
+        `;
+        relayList.appendChild(newRelayItem);
+
+        // Clear input
+        newRelayUrlInput.value = "";
+
+        addLog(`SUCCESS: Added relay ${newRelayUrl}`, "success");
+
+        // Test connection and update status
+        testRelayConnection(newRelayUrl, newRelayItem);
+      } catch (error) {
+        addLog(`ERROR: Failed to add relay: ${error.message}`, "error");
+        // Remove from array if failed
+        currentRelays = currentRelays.filter((url) => url !== newRelayUrl);
+      }
+    });
+
+    // Allow Enter key to add relay
+    newRelayUrlInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        addRelayBtn.click();
+      }
+    });
+  }
+
+  // Remove relay functionality
+  if (relayList) {
+    relayList.addEventListener("click", (e) => {
+      if (e.target.classList.contains("relay-remove-btn")) {
+        const relayUrl = e.target.getAttribute("data-url");
+        const relayItem = e.target.closest(".relay-item");
+
+        // Don't allow removing the last relay
+        if (currentRelays.length <= 1) {
+          addLog("ERROR: Cannot remove the last relay", "error");
+          return;
+        }
+
+        // Remove from current relays array
+        currentRelays = currentRelays.filter((url) => url !== relayUrl);
+
+        // Update GunDB peers
+        gun.opt({ peers: currentRelays });
+
+        // Remove from UI
+        relayItem.remove();
+
+        addLog(`SUCCESS: Removed relay ${relayUrl}`, "success");
+      }
+    });
+  }
+
+  // Test relay connection
+  function testRelayConnection(relayUrl, relayItem) {
+    const statusElement = relayItem.querySelector(".relay-status");
+
+    // Simulate connection test
+    setTimeout(() => {
+      // In a real implementation, you would test the actual connection
+      // For now, we'll simulate based on URL patterns
+      const isReliable =
+        relayUrl.includes("shogun-eco.xyz") ||
+        relayUrl.includes("wallie.io") ||
+        relayUrl.includes("herokuapp.com");
+
+      if (isReliable) {
+        statusElement.className = "relay-status connected";
+      } else {
+        // Test new relays with a ping-like approach
+        const testConnection = Math.random() > 0.3; // 70% success rate for new relays
+        statusElement.className = testConnection
+          ? "relay-status connected"
+          : "relay-status disconnected";
+
+        if (!testConnection) {
+          addLog(`WARNING: Relay ${relayUrl} connection failed`, "warning");
+        }
+      }
+    }, 1500);
+  }
+
+  // Update relay status periodically
+  safeSetInterval(() => {
+    const relayItems = relayList.querySelectorAll(".relay-item");
+    relayItems.forEach((item) => {
+      const statusElement = item.querySelector(".relay-status");
+      const urlElement = item.querySelector(".relay-url");
+      const relayUrl = urlElement.textContent;
+
+      // Only update if not currently connecting
+      if (!statusElement.classList.contains("connecting")) {
+        // Simulate connection status with more realistic patterns
+        const isReliable =
+          relayUrl.includes("shogun-eco.xyz") ||
+          relayUrl.includes("wallie.io") ||
+          relayUrl.includes("herokuapp.com");
+
+        let isConnected;
+        if (isReliable) {
+          isConnected = Math.random() > 0.05; // 95% uptime for reliable relays
+        } else {
+          isConnected = Math.random() > 0.2; // 80% uptime for other relays
+        }
+
+        statusElement.className = isConnected
+          ? "relay-status connected"
+          : "relay-status disconnected";
+      }
+    });
+  }, 10000); // Check every 10 seconds
 }
 
 function showLeaderboard() {
@@ -2199,7 +3553,7 @@ function initializeChat() {
   updateOperatorsList();
 
   // Update operators list more frequently
-  setInterval(updateOperatorsList, 5000); // Update every 5 seconds
+  safeSetInterval(updateOperatorsList, 5000); // Update every 5 seconds
 }
 
 // Main system initializer - called after shogun-core initialization
@@ -2210,7 +3564,12 @@ function initializeSystem() {
   document.addEventListener("DOMContentLoaded", () => {
     const rulesBtn = document.getElementById("rulesBtn");
     if (rulesBtn) {
-      rulesBtn.addEventListener("click", showStationRules);
+      safeAddEventListener(rulesBtn, "click", showStationRules);
+    }
+
+    const aboutBtn = document.getElementById("aboutBtn");
+    if (aboutBtn) {
+      safeAddEventListener(aboutBtn, "click", showAboutSection);
     }
   });
 
@@ -2230,6 +3589,11 @@ function initializeSystem() {
       if (!data || typeof data.value !== "number") {
         console.log("Global timer not found. Initializing on GunDB...");
         timerRef.put({ value: 108, lastUpdate: Date.now() });
+        // Initialize input state for new timer
+        updateInputState(108);
+      } else {
+        // Initialize input state for existing timer
+        updateInputState(data.value);
       }
 
       // Start the global countdown immediately
@@ -2237,7 +3601,7 @@ function initializeSystem() {
         clearInterval(decrementInterval);
         decrementInterval = null;
       }
-      decrementInterval = setInterval(decrementTimer, 60000);
+      decrementInterval = safeSetInterval(decrementTimer, 60000);
 
       // Sync timer with server time
       const now = Date.now();
@@ -2256,6 +3620,9 @@ function initializeSystem() {
         document.title = data.value;
         bigTimer.textContent = data.value;
 
+        // Update input state based on timer value
+        updateInputState(data.value);
+
         if (data.value <= 4) {
           siren.play().catch(() => {});
         } else {
@@ -2271,10 +3638,10 @@ function initializeSystem() {
   }
 
   // Aggiungi un controllo periodico del timer
-  setInterval(() => {
+  safeSetInterval(() => {
     if (!decrementInterval) {
       console.log("Timer interval lost, restarting...");
-      decrementInterval = setInterval(decrementTimer, 60000);
+      decrementInterval = safeSetInterval(decrementTimer, 60000);
     }
   }, 30000);
 }
@@ -2302,7 +3669,11 @@ function showStationRules() {
           <li class="warning">Timer counts down from 108 minutes</li>
           <li class="warning">When timer reaches 0, SYSTEM FAILURE occurs</li>
           <li class="success">Enter sequence: 4 8 15 16 23 42 to reset timer</li>
-          <li class="warning">Incorrect sequences result in immediate penalty (timer set to 4)</li>
+          <li class="warning">Code input ONLY allowed in last 4 minutes of countdown</li>
+          <li class="info">Incorrect sequences are ignored (no penalty)</li>
+          <li class="warning">Station parameters naturally drift over time</li>
+          <li class="warning">Random events can affect multiple parameters simultaneously</li>
+          <li class="success">Balanced parameters provide bonus points on timer reset</li>
         </ul>
       </div>
       
@@ -2310,9 +3681,39 @@ function showStationRules() {
         <h3>OPERATOR REWARDS</h3>
         <ul>
           <li class="success">+1 point for successful reset</li>
+          <li class="success">+1 point for each optimally balanced parameter</li>
+          <li class="success">+3 bonus points for perfect parameter balance (all 6 optimal)</li>
+          <li class="success">+1 bonus point for good balance (4+ parameters optimal)</li>
           <li class="success">+2 bonus points for being first to reset</li>
           <li class="success">+1 bonus point for 4-in-a-row reset streak</li>
+          <li class="success">Task completion awards: Difficulty × (Emergency: 3, Critical: 2, Maintenance: 1)</li>
           <li class="info">Level up based on total points accumulated</li>
+        </ul>
+      </div>
+      
+      <div class="rules-section">
+        <h3>STATION PARAMETERS SYSTEM</h3>
+        <ul>
+          <li class="warning">6 critical parameters must be maintained in balance</li>
+          <li class="info">Power Level: Affects oxygen generation and cooling systems</li>
+          <li class="info">Oxygen Level: Critical for operator survival</li>
+          <li class="info">Temperature: Affects humidity and pressure systems</li>
+          <li class="info">Radiation Level: Damages power and oxygen systems</li>
+          <li class="info">Pressure: Affects oxygen distribution and humidity</li>
+          <li class="info">Humidity: Influenced by temperature and pressure</li>
+          <li class="success">Parameters are interconnected - changes affect multiple systems</li>
+        </ul>
+      </div>
+      
+      <div class="rules-section">
+        <h3>TASK SYSTEM</h3>
+        <ul>
+          <li class="warning">Tasks appear randomly and must be completed</li>
+          <li class="info">3 types: Maintenance (60%), Critical (30%), Emergency (10%)</li>
+          <li class="warning">Tasks have execution time: 30 seconds × difficulty level</li>
+          <li class="success">Successful tasks improve station parameters</li>
+          <li class="error">Failed tasks worsen station parameters</li>
+          <li class="info">Task effects are realistic and interconnected</li>
         </ul>
       </div>
       
@@ -2326,6 +3727,8 @@ function showStationRules() {
           <li>Operator profiles with custom avatars</li>
           <li class="info">Decentralized network analytics</li>
           <li class="info">Peer contribution monitoring</li>
+          <li class="success">Real-time parameter monitoring with color-coded status</li>
+          <li class="success">Task management system with countdown timers</li>
         </ul>
       </div>
       
@@ -2334,7 +3737,11 @@ function showStationRules() {
         <ul>
           <li class="warning">System failure triggers continuous red alert</li>
           <li class="warning">All operators must coordinate to prevent failure</li>
+          <li class="warning">Critical parameter levels trigger automatic alerts</li>
+          <li class="warning">Emergency tasks appear during system stress</li>
           <li class="info">Station automatically resets after successful code entry</li>
+          <li class="info">Failed tasks can trigger cascading system failures</li>
+          <li class="success">Coordinated task completion stabilizes station systems</li>
         </ul>
       </div>
       
@@ -2345,6 +3752,113 @@ function showStationRules() {
 
   overlay.querySelector("#closeRules").onclick = () => overlay.remove();
 }
+
+// About Section Function
+function showAboutSection() {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="rules-modal">
+      <h2>&gt; ABOUT SWAN STATION</h2>
+      
+      <div class="rules-section">
+        <h3>WHAT IS SWAN STATION?</h3>
+        <p>Swan Station is a collaborative multiplayer game that simulates a critical system requiring constant operator attention. Inspired by the iconic Dharma Initiative station from Lost, players work together to prevent system failure by entering the correct sequence before the timer reaches zero.</p>
+      </div>
+      
+      <div class="rules-section">
+        <h3>END GAME & OBJECTIVES</h3>
+        <ul>
+          <li class="success">Primary Goal: Prevent system failure through coordinated operator efforts</li>
+          <li class="success">Secondary Goal: Achieve the highest operator level through successful resets</li>
+          <li class="info">Long-term Goal: Demonstrate the power of decentralized collaboration</li>
+          <li class="info">Community Goal: Build a global network of reliable operators</li>
+        </ul>
+      </div>
+      
+      <div class="rules-section">
+        <h3>DECENTRALIZED STORAGE & NETWORK</h3>
+        <ul>
+          <li class="info">Built on GunDB - a decentralized graph database</li>
+          <li class="info">Data is stored across multiple peer nodes for redundancy</li>
+          <li class="info">No central server - the game runs on a distributed network</li>
+          <li class="info">Each player contributes to the network's storage capacity</li>
+          <li class="info">Real-time synchronization across all connected peers</li>
+          <li class="success">Censorship-resistant and fault-tolerant architecture</li>
+        </ul>
+      </div>
+      
+      <div class="rules-section">
+        <h3>SHOGUN ECO ECOSYSTEM</h3>
+        <ul>
+          <li class="success">Part of the larger shogun-eco.xyz decentralized ecosystem</li>
+          <li class="info">Demonstrates practical applications of decentralized technology</li>
+          <li class="info">Showcases real-time collaborative applications without central control</li>
+          <li class="info">Serves as a proof-of-concept for decentralized gaming</li>
+          <li class="success">Contributes to the broader mission of Web3 decentralization</li>
+        </ul>
+      </div>
+      
+      <div class="rules-section">
+        <h3>TECHNICAL ARCHITECTURE</h3>
+        <ul>
+          <li class="info">Frontend: HTML5, CSS3, JavaScript with retro terminal aesthetic</li>
+          <li class="info">Backend: GunDB decentralized database</li>
+          <li class="info">Authentication: Shogun Core decentralized identity system</li>
+          <li class="info">Real-time Communication: Peer-to-peer messaging</li>
+          <li class="info">Storage: Distributed across network participants</li>
+          <li class="success">No traditional servers required - truly decentralized</li>
+        </ul>
+      </div>
+      
+      <div class="rules-section">
+        <h3>WHY DECENTRALIZATION MATTERS</h3>
+        <ul>
+          <li class="success">No single point of failure - the game continues even if some nodes go offline</li>
+          <li class="success">Censorship resistance - cannot be shut down by authorities</li>
+          <li class="info">User ownership - players control their own data and identity</li>
+          <li class="info">Transparency - all game logic and data is open and verifiable</li>
+          <li class="success">Community-driven - the network grows stronger with each participant</li>
+        </ul>
+      </div>
+      
+      <div class="rules-section">
+        <h3>JOIN THE NETWORK</h3>
+        <p>By participating in Swan Station, you're not just playing a game - you're contributing to a decentralized future. Every reset, every message, every connection helps strengthen the network and demonstrates the potential of peer-to-peer collaboration.</p>
+        <p class="success">Welcome to the future of decentralized gaming.</p>
+      </div>
+      
+      <div class="rules-section">
+        <h3>OPEN SOURCE</h3>
+        <p>This project is open source and available on GitHub. You can view the source code, contribute to development, or run your own instance of Swan Station.</p>
+        <p class="success"><a href="https://github.com/scobru/the-swan-station" target="_blank" class="github-link">📁 VIEW ON GITHUB</a></p>
+      </div>
+      
+      <div class="button" id="closeAbout">CLOSE</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector("#closeAbout").onclick = () => overlay.remove();
+}
+
+// Page visibility API to pause audio when page is not visible
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    // Pause all audio when page is hidden
+    [siren, reset, tick, ...buttonSounds].forEach((audio) => {
+      if (audio && typeof audio.pause === "function") {
+        audio.pause();
+      }
+    });
+  }
+});
+
+// Cleanup on page unload
+window.addEventListener("beforeunload", () => {
+  cleanup();
+  console.log("🧹 Page unload cleanup completed");
+});
 
 // Start the application
 initializeShogun();
@@ -2393,4 +3907,1315 @@ function checkTimerHealth() {
 }
 
 // Chiama il controllo di salute ogni 2 minuti
-setInterval(checkTimerHealth, 120000);
+safeSetInterval(checkTimerHealth, 120000);
+
+// Task System Functions
+function initializeTaskSystem() {
+  console.log("Initializing task system...");
+
+  // Initialize station parameters in GunDB
+  stationParamsRef.once((params) => {
+    if (!params) {
+      stationParamsRef.put({
+        ...stationParameters,
+        lastUpdate: Date.now(),
+        lastEvent: null,
+      });
+    } else {
+      stationParameters = { ...stationParameters, ...params };
+    }
+  });
+
+  // Listen for station parameter changes
+  stationParamsRef.on((params) => {
+    if (params) {
+      stationParameters = { ...stationParameters, ...params };
+      updateStationParametersDisplay();
+      checkParameterAlerts();
+    }
+  });
+
+  // Start real-time task synchronization
+  startTaskSynchronization();
+
+  // Start task generation
+  startTaskGeneration();
+
+  // Start random events
+  startRandomEvents();
+
+  // Start parameter drift
+  startParameterDrift();
+
+  // Start real-time parameter display updates
+  startParameterDisplayUpdates();
+
+  // Start task cleanup
+  startTaskCleanup();
+}
+
+function loadTasksFromGunDB() {
+  console.log("Loading tasks from GunDB...");
+
+  // Clear existing active tasks
+  activeTasks = [];
+
+  // Get current timestamp for filtering
+  const currentTime = Date.now();
+  const connectionTime = currentUser
+    ? currentUser.connectionTime || currentTime
+    : currentTime;
+
+  console.log(
+    `Loading tasks with connection time: ${new Date(
+      connectionTime
+    ).toLocaleTimeString()}`
+  );
+
+  // Load tasks from GunDB
+  taskRef.map().once((task, id) => {
+    if (task && typeof task === "object") {
+      // Validate task data
+      if (!task.name || !task.type || !task.expiresAt) {
+        console.warn("Invalid task data loaded from GunDB:", task);
+        return;
+      }
+
+      // Use actual creation time if available, otherwise estimate from expiresAt
+      const taskCreationTime =
+        task.createdAt || task.expiresAt - (task.timeLimit || 300000);
+      const isRecentTask = taskCreationTime > connectionTime - 30000; // 30 second buffer
+
+      console.log(
+        `Task ${task.name}: created=${new Date(
+          taskCreationTime
+        ).toLocaleTimeString()}, recent=${isRecentTask}, expired=${
+          currentTime >= task.expiresAt
+        }`
+      );
+
+      if (!task.completed && !task.failed) {
+        // Only load tasks that are recent and haven't expired
+        if (task.expiresAt && currentTime < task.expiresAt && isRecentTask) {
+          const validTask = {
+            ...task,
+            id,
+            name: task.name || "Unknown Task",
+            type: task.type || "MAINTENANCE",
+            difficulty: task.difficulty || 1,
+            timeLimit: task.timeLimit || 300000,
+            expiresAt: task.expiresAt || Date.now() + 300000,
+            createdAt: task.createdAt || taskCreationTime,
+          };
+          activeTasks.push(validTask);
+          console.log(
+            `✅ Loaded recent active task: ${
+              validTask.name
+            } (created: ${new Date(validTask.createdAt).toLocaleTimeString()})`
+          );
+        } else if (task.expiresAt && currentTime >= task.expiresAt) {
+          // Mark expired tasks as failed
+          task.failed = true;
+          taskRef.get(id).put(task);
+          console.log(`❌ Marked expired task as failed: ${task.name}`);
+        } else if (!isRecentTask) {
+          console.log(
+            `⏭️ Skipping old task: ${task.name} (created: ${new Date(
+              taskCreationTime
+            ).toLocaleTimeString()})`
+          );
+        }
+      } else if (task.completed || task.failed) {
+        // Only add recent completed/failed tasks to history
+        if (isRecentTask) {
+          const validTask = {
+            ...task,
+            id,
+            name: task.name || "Unknown Task",
+            type: task.type || "MAINTENANCE",
+            createdAt: task.createdAt || taskCreationTime,
+          };
+          taskHistory.push(validTask);
+          console.log(`📚 Added to history: ${validTask.name}`);
+        }
+      }
+    }
+  });
+
+  // Update display after loading
+  setTimeout(() => {
+    // Remove any duplicates that might have been created
+    removeDuplicateTasks();
+    updateTaskDisplay();
+    console.log(
+      `📊 Final result: ${activeTasks.length} active tasks and ${taskHistory.length} historical tasks`
+    );
+
+    // Mark initial load as complete
+    window.initialTaskLoadComplete = true;
+    console.log("✅ Initial task load complete - sync now active");
+  }, 1000);
+}
+
+function removeDuplicateTasks() {
+  console.log("Checking for duplicate tasks...");
+
+  const seenIds = new Set();
+  const uniqueTasks = [];
+  let duplicatesRemoved = 0;
+
+  for (const task of activeTasks) {
+    if (task.id && !seenIds.has(task.id)) {
+      seenIds.add(task.id);
+      uniqueTasks.push(task);
+    } else {
+      duplicatesRemoved++;
+      console.warn(`Removed duplicate task: ${task.name} (ID: ${task.id})`);
+    }
+  }
+
+  if (duplicatesRemoved > 0) {
+    activeTasks = uniqueTasks;
+    console.log(`Removed ${duplicatesRemoved} duplicate tasks`);
+  }
+}
+
+function cleanupCorruptedTasks() {
+  console.log("Cleaning up corrupted tasks...");
+
+  taskRef.map().once((task, id) => {
+    if (task && typeof task === "object") {
+      // Check if task is corrupted
+      if (
+        !task.name ||
+        !task.type ||
+        !task.expiresAt ||
+        typeof task.name !== "string" ||
+        typeof task.type !== "string" ||
+        typeof task.expiresAt !== "number"
+      ) {
+        console.warn("Removing corrupted task:", task);
+        taskRef.get(id).put(null); // Remove corrupted task
+      }
+    }
+  });
+}
+
+function startTaskSynchronization() {
+  console.log("Starting real-time task synchronization...");
+
+  // Listen for new tasks being added by any operator
+  taskRef.map().on((task, taskId) => {
+    // Skip sync during initial load to prevent conflicts
+    if (!window.initialTaskLoadComplete) {
+      console.log("⏳ Skipping sync during initial load");
+      return;
+    }
+
+    if (task && !task.completed && !task.failed) {
+      // Check if this task is already in our local list
+      const existingTask = activeTasks.find((t) => t.id === taskId);
+
+      if (!existingTask) {
+        // Check if this is a recent task (within 30 seconds of connection)
+        const currentTime = Date.now();
+        const connectionTime = currentUser
+          ? currentUser.connectionTime || currentTime
+          : currentTime;
+        const taskCreationTime =
+          task.createdAt || task.expiresAt - (task.timeLimit || 300000);
+        const isRecentTask = taskCreationTime > connectionTime - 30000; // 30 second buffer
+
+        if (isRecentTask) {
+          // New task added by another operator (recent)
+          const validTask = {
+            ...task,
+            id: taskId,
+            name: task.name || "Unknown Task",
+            type: task.type || "MAINTENANCE",
+            difficulty: task.difficulty || 1,
+            timeLimit: task.timeLimit || 300000,
+            expiresAt: task.expiresAt || Date.now() + 300000,
+            createdAt: task.createdAt || taskCreationTime,
+          };
+          activeTasks.push(validTask);
+          addLog(
+            `NEW TASK DETECTED: ${validTask.name} (${validTask.type})`,
+            "info"
+          );
+          updateTaskDisplay();
+        } else {
+          console.log(
+            `Skipping old task from sync: ${task.name} (created: ${new Date(
+              taskCreationTime
+            ).toLocaleTimeString()})`
+          );
+        }
+      } else {
+        // Task updated by another operator
+        const index = activeTasks.findIndex((t) => t.id === taskId);
+        if (index !== -1) {
+          // Check if this is our own task update (to avoid overwriting local changes)
+          const localTask = activeTasks[index];
+          const isOwnUpdate =
+            currentUser && task.assignedTo === currentUser.alias;
+
+          // Only update if it's not our own recent update or if it's a significant change
+          if (!isOwnUpdate || task.assignedTo !== localTask.assignedTo) {
+            const updatedTask = {
+              ...task,
+              id: taskId,
+              name: task.name || "Unknown Task",
+              type: task.type || "MAINTENANCE",
+              difficulty: task.difficulty || 1,
+              timeLimit: task.timeLimit || 300000,
+              expiresAt: task.expiresAt || Date.now() + 300000,
+              createdAt: task.createdAt || localTask.createdAt,
+            };
+            activeTasks[index] = updatedTask;
+            console.log(
+              `🔄 Updated task from sync: ${updatedTask.name} (assignedTo: ${updatedTask.assignedTo})`
+            );
+            updateTaskDisplay();
+          } else {
+            console.log(`⏭️ Skipping own update for task: ${task.name}`);
+          }
+        }
+      }
+    } else if (task && (task.completed || task.failed)) {
+      // Task completed or failed by another operator
+      const index = activeTasks.findIndex((t) => t.id === taskId);
+      if (index !== -1) {
+        const completedTask = activeTasks[index];
+        activeTasks.splice(index, 1);
+        taskHistory.push(completedTask);
+
+        if (task.completed) {
+          addLog(
+            `TASK COMPLETED BY ANOTHER OPERATOR: ${completedTask.name}`,
+            "success"
+          );
+
+          // Show notification for task completion by others (without sound to avoid double play)
+          showTaskNotification({
+            name: completedTask.name,
+            type: completedTask.type,
+            difficulty: completedTask.difficulty,
+            timeLimit: 0,
+            completed: true,
+          });
+        } else {
+          addLog(
+            `TASK FAILED BY ANOTHER OPERATOR: ${completedTask.name}`,
+            "error"
+          );
+          // Show notification for task failure by others (without sound)
+          showTaskNotification({
+            name: completedTask.name,
+            type: completedTask.type,
+            difficulty: completedTask.difficulty,
+            timeLimit: 0,
+            failed: true,
+          });
+        }
+
+        updateTaskDisplay();
+      }
+    }
+  });
+}
+
+function startTaskCleanup() {
+  // Clean up expired tasks every 30 seconds
+  safeSetInterval(() => {
+    const now = Date.now();
+    let tasksRemoved = 0;
+
+    // Remove duplicates first
+    removeDuplicateTasks();
+
+    // Check for expired tasks
+    activeTasks = activeTasks.filter((task) => {
+      if (task.expiresAt && now > task.expiresAt) {
+        // Mark as failed in GunDB
+        task.failed = true;
+        taskRef.get(task.id).put(task);
+        taskHistory.push(task);
+        tasksRemoved++;
+        addLog(`Task "${task.name}" expired and marked as failed`, "warning");
+
+        return false;
+      }
+      return true;
+    });
+
+    if (tasksRemoved > 0) {
+      updateTaskDisplay();
+      console.log(`Cleaned up ${tasksRemoved} expired tasks`);
+    }
+  }, 30000);
+}
+
+function startTaskGeneration() {
+  // Generate tasks every 5-10 minutes
+  const generateTask = () => {
+    const taskType = Math.random();
+    let category, taskKey;
+
+    if (taskType < 0.1) {
+      // 10% chance for emergency task
+      category = "EMERGENCY";
+      const emergencyTasks = Object.keys(taskTypes.EMERGENCY);
+      taskKey =
+        emergencyTasks[Math.floor(Math.random() * emergencyTasks.length)];
+    } else if (taskType < 0.4) {
+      // 30% chance for critical task
+      category = "CRITICAL";
+      const criticalTasks = Object.keys(taskTypes.CRITICAL);
+      taskKey = criticalTasks[Math.floor(Math.random() * criticalTasks.length)];
+    } else {
+      // 60% chance for maintenance task
+      category = "MAINTENANCE";
+      const maintenanceTasks = Object.keys(taskTypes.MAINTENANCE);
+      taskKey =
+        maintenanceTasks[Math.floor(Math.random() * maintenanceTasks.length)];
+    }
+
+    const task = taskTypes[category][taskKey];
+
+    // Validate task data
+    if (!task || !task.name) {
+      console.error("Invalid task data:", task);
+      return;
+    }
+
+    const taskId = crypto.randomUUID();
+
+    const newTask = {
+      id: taskId,
+      type: category,
+      name: task.name,
+      difficulty: task.difficulty || 1,
+      timeLimit: task.timeLimit || 300000,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + (task.timeLimit || 300000),
+      assignedTo: null,
+      completed: false,
+      failed: false,
+      parameters: generateTaskParameters(category, taskKey),
+    };
+
+    // Add task to GunDB
+    taskRef.get(taskId).put(newTask);
+
+    // Check if task with same ID already exists
+    const existingTask = activeTasks.find((t) => t.id === taskId);
+    if (!existingTask) {
+      // Add to local active tasks
+      activeTasks.push(newTask);
+      addLog(`NEW TASK: ${task.name} (${category})`, "warning");
+    } else {
+      console.warn(`Task with ID ${taskId} already exists, skipping duplicate`);
+      return;
+    }
+
+    // Show task notification
+    showTaskNotification(newTask);
+
+    // Update task display
+    updateTaskDisplay();
+  };
+
+  // Generate initial task after 5 minutes
+  safeSetTimeout(generateTask, 300000);
+
+  // Generate tasks every 10-15 minutes
+  safeSetInterval(() => {
+    if (activeTasks.length < 2) {
+      // Max 2 active tasks
+      generateTask();
+    }
+  }, Math.random() * 300000 + 600000); // 10-15 minutes
+}
+
+function generateTaskParameters(category, taskKey) {
+  const params = {};
+
+  // Ensure stationParameters exists
+  if (!stationParameters) {
+    console.warn("stationParameters not initialized, using default values");
+    stationParameters = {
+      powerLevel: 50,
+      oxygenLevel: 50,
+      temperature: 20,
+      radiationLevel: 0.1,
+      pressure: 1000,
+      humidity: 50,
+    };
+  }
+
+  switch (taskKey) {
+    case "powerBalance":
+      params.targetPower = Math.floor(Math.random() * 20) + 80; // 80-100
+      params.currentPower = stationParameters.powerLevel || 50;
+      break;
+    case "oxygenRegulation":
+      params.targetOxygen = Math.floor(Math.random() * 10) + 90; // 90-100
+      params.currentOxygen = stationParameters.oxygenLevel || 50;
+      break;
+    case "temperatureControl":
+      params.targetTemp = Math.floor(Math.random() * 10) + 18; // 18-28
+      params.currentTemp = stationParameters.temperature || 20;
+      break;
+    case "radiationShield":
+      params.targetRadiation = Math.random() * 0.1; // 0-0.1
+      params.currentRadiation = stationParameters.radiationLevel || 0.1;
+      break;
+    case "pressureStabilization":
+      params.targetPressure = Math.floor(Math.random() * 100) + 950; // 950-1050
+      params.currentPressure = stationParameters.pressure || 1000;
+      break;
+    case "humidityControl":
+      params.targetHumidity = Math.floor(Math.random() * 30) + 35; // 35-65
+      params.currentHumidity = stationParameters.humidity || 50;
+      break;
+    default:
+      params.randomValue = Math.floor(Math.random() * 100);
+  }
+
+  return params;
+}
+
+function startRandomEvents() {
+  // Trigger random events every 3-8 minutes
+  safeSetInterval(() => {
+    if (Math.random() < 0.3) {
+      // 30% chance
+      const event =
+        randomEvents[Math.floor(Math.random() * randomEvents.length)];
+      triggerRandomEvent(event);
+    }
+  }, Math.random() * 300000 + 180000); // 3-8 minutes
+}
+
+function triggerRandomEvent(event) {
+  addLog(`RANDOM EVENT: ${event.name}`, "error");
+
+  // Apply effects to station parameters
+  Object.keys(event.effect).forEach((param) => {
+    stationParameters[param] += event.effect[param];
+
+    // Clamp values to reasonable ranges
+    if (param === "powerLevel")
+      stationParameters[param] = Math.max(
+        0,
+        Math.min(100, stationParameters[param])
+      );
+    if (param === "oxygenLevel")
+      stationParameters[param] = Math.max(
+        0,
+        Math.min(100, stationParameters[param])
+      );
+    if (param === "temperature")
+      stationParameters[param] = Math.max(
+        -50,
+        Math.min(100, stationParameters[param])
+      );
+    if (param === "radiationLevel")
+      stationParameters[param] = Math.max(
+        0,
+        Math.min(1, stationParameters[param])
+      );
+    if (param === "pressure")
+      stationParameters[param] = Math.max(
+        800,
+        Math.min(1200, stationParameters[param])
+      );
+    if (param === "humidity")
+      stationParameters[param] = Math.max(
+        0,
+        Math.min(100, stationParameters[param])
+      );
+  });
+
+  // Update GunDB
+  stationParamsRef.put({
+    ...stationParameters,
+    lastUpdate: Date.now(),
+    lastEvent: event.name,
+  });
+
+  // Create emergency task if needed
+  if (Math.random() < 0.5) {
+    const emergencyTasks = Object.keys(taskTypes.EMERGENCY);
+    const taskKey =
+      emergencyTasks[Math.floor(Math.random() * emergencyTasks.length)];
+    const task = taskTypes.EMERGENCY[taskKey];
+    const taskId = crypto.randomUUID();
+
+    const newTask = {
+      id: taskId,
+      type: "EMERGENCY",
+      name: task.name,
+      difficulty: task.difficulty,
+      timeLimit: task.timeLimit,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + task.timeLimit,
+      assignedTo: null,
+      completed: false,
+      failed: false,
+      parameters: generateTaskParameters("EMERGENCY", taskKey),
+      triggeredBy: event.name,
+    };
+
+    taskRef.get(taskId).put(newTask);
+
+    // Check if task with same ID already exists
+    const existingTask = activeTasks.find((t) => t.id === taskId);
+    if (!existingTask) {
+      activeTasks.push(newTask);
+      updateTaskDisplay();
+    } else {
+      console.warn(
+        `Emergency task with ID ${taskId} already exists, skipping duplicate`
+      );
+    }
+  }
+}
+
+function startParameterDrift() {
+  // Parameters naturally drift over time with realistic patterns
+  safeSetInterval(() => {
+    // More realistic drift patterns
+    const driftPatterns = {
+      powerLevel: (Math.random() - 0.5) * 1.5, // Power fluctuates less
+      oxygenLevel: (Math.random() - 0.5) * 1.2, // Oxygen is more stable
+      temperature: (Math.random() - 0.5) * 2.5, // Temperature fluctuates more
+      radiationLevel: (Math.random() - 0.5) * 0.02, // Radiation changes slowly
+      pressure: (Math.random() - 0.5) * 3, // Pressure fluctuates moderately
+      humidity: (Math.random() - 0.5) * 2, // Humidity fluctuates moderately
+    };
+
+    // Apply drift to all parameters
+    Object.keys(driftPatterns).forEach((param) => {
+      stationParameters[param] += driftPatterns[param];
+    });
+
+    // Apply interdependencies after drift
+    applyParameterInterdependencies();
+
+    // Clamp values to realistic ranges
+    clampParameterValues();
+
+    // Update GunDB every 30 seconds
+    stationParamsRef.put({
+      ...stationParameters,
+      lastUpdate: Date.now(),
+    });
+
+    // Update the display
+    updateStationParametersDisplay();
+
+    // Check for alerts
+    checkParameterAlerts();
+  }, 30000);
+
+  // Also add more frequent small changes for better visibility
+  safeSetInterval(() => {
+    // Small random changes every 10 seconds for more dynamic feel
+    const smallDrift = {
+      powerLevel: (Math.random() - 0.5) * 0.3,
+      oxygenLevel: (Math.random() - 0.5) * 0.2,
+      temperature: (Math.random() - 0.5) * 0.5,
+      radiationLevel: (Math.random() - 0.5) * 0.005,
+      pressure: (Math.random() - 0.5) * 0.6,
+      humidity: (Math.random() - 0.5) * 0.4,
+    };
+
+    Object.keys(smallDrift).forEach((param) => {
+      stationParameters[param] += smallDrift[param];
+    });
+
+    applyParameterInterdependencies();
+    clampParameterValues();
+
+    // Update display immediately for small changes
+    updateStationParametersDisplay();
+  }, 10000);
+}
+
+function updateStationParametersDisplay() {
+  // Update the station parameters display in the UI
+  const paramsDisplay = document.getElementById("stationParamsDisplay");
+
+  // Check if stationParameters is initialized
+  if (!stationParameters) {
+    console.warn("stationParameters not initialized yet");
+    return;
+  }
+
+  if (paramsDisplay) {
+    // Store previous values for comparison
+    const previousValues = {};
+    const currentElements = paramsDisplay.querySelectorAll(".param-value");
+    currentElements.forEach((element, index) => {
+      const paramNames = [
+        "powerLevel",
+        "oxygenLevel",
+        "temperature",
+        "radiationLevel",
+        "pressure",
+        "humidity",
+      ];
+      if (paramNames[index]) {
+        previousValues[paramNames[index]] = parseFloat(
+          element.textContent.replace(/[^\d.-]/g, "")
+        );
+      }
+    });
+    paramsDisplay.innerHTML = `
+      <div class="param-item ${
+        (stationParameters.powerLevel || 0) < 20
+          ? "critical"
+          : (stationParameters.powerLevel || 0) < 50
+          ? "warning"
+          : "normal"
+      }">
+        <span class="param-label">POWER:</span>
+        <span class="param-value">${(stationParameters.powerLevel || 0).toFixed(
+          1
+        )}%</span>
+      </div>
+      <div class="param-item ${
+        (stationParameters.oxygenLevel || 0) < 15
+          ? "critical"
+          : (stationParameters.oxygenLevel || 0) < 30
+          ? "warning"
+          : "normal"
+      }">
+        <span class="param-label">OXYGEN:</span>
+        <span class="param-value">${(
+          stationParameters.oxygenLevel || 0
+        ).toFixed(1)}%</span>
+      </div>
+      <div class="param-item ${
+        (stationParameters.temperature || 0) > 40 ||
+        (stationParameters.temperature || 0) < 0
+          ? "critical"
+          : (stationParameters.temperature || 0) > 30 ||
+            (stationParameters.temperature || 0) < 10
+          ? "warning"
+          : "normal"
+      }">
+        <span class="param-label">TEMP:</span>
+        <span class="param-value">${(
+          stationParameters.temperature || 0
+        ).toFixed(1)}°C</span>
+      </div>
+      <div class="param-item ${
+        (stationParameters.radiationLevel || 0) > 0.5
+          ? "critical"
+          : (stationParameters.radiationLevel || 0) > 0.2
+          ? "warning"
+          : "normal"
+      }">
+        <span class="param-label">RADIATION:</span>
+        <span class="param-value">${(
+          stationParameters.radiationLevel || 0
+        ).toFixed(3)}</span>
+      </div>
+      <div class="param-item ${
+        (stationParameters.pressure || 0) < 900 ||
+        (stationParameters.pressure || 0) > 1100
+          ? "critical"
+          : (stationParameters.pressure || 0) < 950 ||
+            (stationParameters.pressure || 0) > 1050
+          ? "warning"
+          : "normal"
+      }">
+        <span class="param-label">PRESSURE:</span>
+        <span class="param-value">${(stationParameters.pressure || 0).toFixed(
+          0
+        )} hPa</span>
+      </div>
+      <div class="param-item ${
+        (stationParameters.humidity || 0) < 20 ||
+        (stationParameters.humidity || 0) > 80
+          ? "critical"
+          : (stationParameters.humidity || 0) < 30 ||
+            (stationParameters.humidity || 0) > 70
+          ? "warning"
+          : "normal"
+      }">
+        <span class="param-label">HUMIDITY:</span>
+        <span class="param-value">${(stationParameters.humidity || 0).toFixed(
+          1
+        )}%</span>
+      </div>
+    `;
+
+    // Add visual feedback for parameter changes
+    const newElements = paramsDisplay.querySelectorAll(".param-value");
+    newElements.forEach((element, index) => {
+      const paramNames = [
+        "powerLevel",
+        "oxygenLevel",
+        "temperature",
+        "radiationLevel",
+        "pressure",
+        "humidity",
+      ];
+      const paramName = paramNames[index];
+
+      if (paramName && previousValues[paramName] !== undefined) {
+        const currentValue = parseFloat(
+          element.textContent.replace(/[^\d.-]/g, "")
+        );
+        const previousValue = previousValues[paramName];
+
+        if (currentValue > previousValue) {
+          // Value increased - add green flash
+          element.style.animation = "parameterIncrease 1s ease-out";
+        } else if (currentValue < previousValue) {
+          // Value decreased - add red flash
+          element.style.animation = "parameterDecrease 1s ease-out";
+        }
+
+        // Remove animation after it completes
+        setTimeout(() => {
+          element.style.animation = "";
+        }, 1000);
+      }
+    });
+  }
+}
+
+function checkParameterAlerts() {
+  // Check if stationParameters is initialized
+  if (!stationParameters) {
+    return;
+  }
+
+  // Check for critical parameter levels
+  if ((stationParameters.powerLevel || 0) < 20) {
+    addLog("CRITICAL: Power levels critically low!", "error");
+  }
+  if ((stationParameters.oxygenLevel || 0) < 15) {
+    addLog("CRITICAL: Oxygen levels critically low!", "error");
+  }
+  if (
+    (stationParameters.temperature || 0) > 40 ||
+    (stationParameters.temperature || 0) < 0
+  ) {
+    addLog("CRITICAL: Temperature outside safe range!", "error");
+  }
+  if ((stationParameters.radiationLevel || 0) > 0.5) {
+    addLog("CRITICAL: Radiation levels dangerously high!", "error");
+  }
+  if (
+    (stationParameters.pressure || 0) < 900 ||
+    (stationParameters.pressure || 0) > 1100
+  ) {
+    addLog("CRITICAL: Pressure outside safe range!", "error");
+  }
+  if (
+    (stationParameters.humidity || 0) < 20 ||
+    (stationParameters.humidity || 0) > 80
+  ) {
+    addLog("CRITICAL: Humidity outside safe range!", "error");
+  }
+}
+
+function updateTaskDisplay() {
+  const taskDisplay = document.getElementById("taskDisplay");
+  if (taskDisplay) {
+    // Show operator's active task count
+    let operatorTaskCount = "";
+    if (currentUser) {
+      const operatorActiveTasks = activeTasks.filter(
+        (t) => t.assignedTo === currentUser.alias
+      );
+      operatorTaskCount = `<div class="operator-task-count">Your active tasks: ${operatorActiveTasks.length}/3</div>`;
+    }
+
+    if (activeTasks.length === 0) {
+      taskDisplay.innerHTML = `
+        ${operatorTaskCount}
+        <div class="no-tasks">No active tasks</div>
+      `;
+      return;
+    }
+
+    const taskHTMLArray = activeTasks.map((task) => {
+      // Validate task data
+      if (!task || !task.expiresAt || typeof task.expiresAt !== "number") {
+        console.warn("Invalid task in updateTaskDisplay:", task);
+        return "";
+      }
+
+      const timeLeft = Math.max(0, task.expiresAt - Date.now());
+      const timeLeftMinutes = Math.floor(timeLeft / 60000);
+      const timeLeftSeconds = Math.floor((timeLeft % 60000) / 1000);
+
+      // Calculate execution countdown
+      let executionStatus = "";
+      let canComplete = true;
+      if (task.assignedTo && task.executionEndTime) {
+        const executionTimeLeft = Math.max(
+          0,
+          task.executionEndTime - Date.now()
+        );
+        if (executionTimeLeft > 0) {
+          const execMinutes = Math.floor(executionTimeLeft / 60000);
+          const execSeconds = Math.floor((executionTimeLeft % 60000) / 1000);
+          executionStatus = `Executing: ${execMinutes}:${execSeconds
+            .toString()
+            .padStart(2, "0")}`;
+          canComplete = false;
+        } else {
+          executionStatus = "Ready to complete";
+        }
+      }
+
+      // Determine task status for styling
+      let taskStatusClass = "";
+      if (
+        task.assignedTo &&
+        task.executionEndTime &&
+        Date.now() < task.executionEndTime
+      ) {
+        taskStatusClass = "task-executing";
+      } else if (task.assignedTo) {
+        taskStatusClass = "task-assigned";
+      } else {
+        taskStatusClass = "task-available";
+      }
+
+      // Debug: Log task state for troubleshooting (only for assigned tasks)
+      if (task.assignedTo) {
+        console.log(`Task ${task.id} state:`, {
+          name: task.name,
+          assignedTo: task.assignedTo,
+          executionEndTime: task.executionEndTime,
+          statusClass: taskStatusClass,
+          canComplete: canComplete,
+        });
+      }
+
+      return `
+        <div class="task-item ${(task.type || "maintenance").toLowerCase()} ${
+        timeLeft < 60000 ? "urgent" : ""
+      } ${taskStatusClass}">
+          <div class="task-header">
+            <span class="task-name">${task.name || "Unknown Task"}</span>
+            <span class="task-type">${task.type || "MAINTENANCE"}</span>
+          </div>
+          <div class="task-details">
+            <span class="task-difficulty">Difficulty: ${
+              task.difficulty || 1
+            }/5</span>
+            <span class="task-time">Expires: ${timeLeftMinutes}:${timeLeftSeconds
+        .toString()
+        .padStart(2, "0")}</span>
+            ${
+              task.assignedTo
+                ? `<span class="task-execution">${executionStatus}</span>`
+                : ""
+            }
+          </div>
+          <div class="task-actions">
+            <button class="task-btn accept ${
+              task.assignedTo ? "assigned" : ""
+            }" onclick="acceptTask('${task.id}')" ${
+        task.assignedTo ? "disabled" : ""
+      }>
+              ${task.assignedTo ? "ASSIGNED" : "ACCEPT"}
+            </button>
+            <button class="task-btn complete ${
+              !canComplete ? "executing" : ""
+            }" onclick="completeTask('${task.id}')" ${
+        !task.assignedTo ||
+        task.assignedTo !== currentUser?.alias ||
+        !canComplete
+          ? "disabled"
+          : ""
+      }>
+              ${!canComplete ? "EXECUTING..." : "COMPLETE"}
+            </button>
+          </div>
+        </div>
+      `;
+    });
+
+    // Filter out empty task HTML (from invalid tasks)
+    const validTaskHTML = taskHTMLArray.filter((html) => html !== "");
+    taskDisplay.innerHTML = operatorTaskCount + validTaskHTML.join("");
+  }
+}
+
+// Task action functions
+function acceptTask(taskId) {
+  console.log("🎯 acceptTask called with taskId:", taskId);
+
+  if (!currentUser) {
+    addLog("ERROR: Must be logged in to accept tasks", "error");
+    return;
+  }
+
+  const task = activeTasks.find((t) => t.id === taskId);
+  if (!task) {
+    addLog("ERROR: Task not found", "error");
+    return;
+  }
+
+  if (task.assignedTo) {
+    addLog("ERROR: Task already assigned", "error");
+    return;
+  }
+
+  // Check if operator already has 3 active tasks
+  const operatorActiveTasks = activeTasks.filter(
+    (t) => t.assignedTo === currentUser.alias
+  );
+
+  if (operatorActiveTasks.length >= 3) {
+    addLog(
+      `ERROR: Maximum 3 tasks allowed. You have ${operatorActiveTasks.length} active tasks.`,
+      "error"
+    );
+    return;
+  }
+
+  // Add task execution time based on difficulty
+  const executionTime = task.difficulty * 30000; // 30 seconds per difficulty level
+  task.executionStartTime = Date.now();
+  task.executionEndTime = Date.now() + executionTime;
+  task.assignedTo = currentUser.alias;
+
+  // Update the task in the local array first
+  const taskIndex = activeTasks.findIndex((t) => t.id === taskId);
+  if (taskIndex !== -1) {
+    activeTasks[taskIndex] = { ...task };
+    console.log(
+      `✅ Updated local task: ${task.name} (assignedTo: ${task.assignedTo})`
+    );
+  } else {
+    console.warn(`❌ Task not found in local array: ${taskId}`);
+  }
+
+  // Then update in GunDB
+  taskRef.get(taskId).put(task);
+  console.log(`📡 Updated task in GunDB: ${task.name}`);
+
+  addLog(
+    `Task "${task.name}" accepted by ${
+      currentUser.alias
+    }. Execution time: ${Math.floor(executionTime / 1000)}s`,
+    "success"
+  );
+
+  // Update display immediately with a small delay to ensure GunDB sync
+  setTimeout(() => {
+    updateTaskDisplay();
+  }, 100);
+}
+
+function completeTask(taskId) {
+  if (!currentUser) {
+    addLog("ERROR: Must be logged in to complete tasks", "error");
+    return;
+  }
+
+  const task = activeTasks.find((t) => t.id === taskId);
+  if (!task) {
+    addLog("ERROR: Task not found", "error");
+    return;
+  }
+
+  if (!task.assignedTo || task.assignedTo !== currentUser.alias) {
+    addLog("ERROR: Task not assigned to you", "error");
+    return;
+  }
+
+  // Check if execution time has passed
+  if (task.executionEndTime && Date.now() < task.executionEndTime) {
+    const remainingTime = Math.ceil(
+      (task.executionEndTime - Date.now()) / 1000
+    );
+    addLog(
+      `ERROR: Task execution in progress. ${remainingTime}s remaining.`,
+      "error"
+    );
+    return;
+  }
+
+  if (Date.now() > task.expiresAt) {
+    addLog("ERROR: Task has expired", "error");
+    task.failed = true;
+    taskRef.get(taskId).put(task);
+    activeTasks = activeTasks.filter((t) => t.id !== taskId);
+    updateTaskDisplay();
+    return;
+  }
+
+  // Calculate task success based on parameters
+  const success = calculateTaskSuccess(task);
+
+  if (success) {
+    task.completed = true;
+
+    addLog(`Task "${task.name}" completed successfully!`, "success");
+
+    // Award points based on task difficulty and type
+    const points =
+      task.difficulty *
+      (task.type === "EMERGENCY" ? 3 : task.type === "CRITICAL" ? 2 : 1);
+    awardTaskPoints(points);
+
+    // Apply task effects to station parameters
+    applyTaskEffects(task);
+  } else {
+    task.failed = true;
+
+    addLog(`Task "${task.name}" failed!`, "error");
+
+    // Apply negative effects
+    applyTaskFailureEffects(task);
+  }
+
+  // Remove from active tasks and add to history
+  activeTasks = activeTasks.filter((t) => t.id !== taskId);
+  taskHistory.push(task);
+
+  taskRef.get(taskId).put(task);
+  updateTaskDisplay();
+}
+
+function calculateTaskSuccess(task) {
+  // Base success rate based on difficulty
+  let successRate = 1 - task.difficulty * 0.1; // 90% for difficulty 1, 50% for difficulty 5
+
+  // Add randomness
+  successRate += (Math.random() - 0.5) * 0.2; // ±10% randomness
+
+  // Consider parameter conditions
+  if (task.parameters) {
+    if (
+      task.parameters.targetPower &&
+      Math.abs(stationParameters.powerLevel - task.parameters.targetPower) < 5
+    ) {
+      successRate += 0.1;
+    }
+    if (
+      task.parameters.targetOxygen &&
+      Math.abs(stationParameters.oxygenLevel - task.parameters.targetOxygen) < 3
+    ) {
+      successRate += 0.1;
+    }
+    if (
+      task.parameters.targetTemp &&
+      Math.abs(stationParameters.temperature - task.parameters.targetTemp) < 2
+    ) {
+      successRate += 0.1;
+    }
+  }
+
+  return Math.random() < Math.max(0.1, Math.min(0.95, successRate));
+}
+
+function awardTaskPoints(points) {
+  if (!currentUser) return;
+
+  user.get("profile").once((profile) => {
+    const newPoints = (profile.points || 0) + points;
+    const newLevel = getLevelFromPoints(newPoints);
+
+    const newProfile = {
+      ...profile,
+      points: newPoints,
+      level: newLevel,
+      tasksCompleted: (profile.tasksCompleted || 0) + 1,
+    };
+
+    user.get("profile").put(newProfile);
+
+    // Update leaderboard
+    gun.get("leaderboard").get(currentUser.alias).put({
+      points: newPoints,
+      level: newLevel,
+    });
+
+    addLog(`+${points} points for task completion!`, "success");
+  });
+}
+
+function applyTaskEffects(task) {
+  // Apply realistic effects based on task completion
+  const effects = parameterEffects[task.name];
+  if (effects && effects.success) {
+    Object.keys(effects.success).forEach((param) => {
+      stationParameters[param] += effects.success[param];
+    });
+
+    // Apply parameter interdependencies
+    applyParameterInterdependencies();
+
+    // Clamp values to reasonable ranges
+    clampParameterValues();
+
+    addLog(`Task "${task.name}" improved station parameters`, "success");
+  }
+
+  stationParamsRef.put({
+    ...stationParameters,
+    lastUpdate: Date.now(),
+  });
+}
+
+function applyTaskFailureEffects(task) {
+  // Apply realistic negative effects for failed tasks
+  const effects = parameterEffects[task.name];
+  if (effects && effects.failure) {
+    Object.keys(effects.failure).forEach((param) => {
+      stationParameters[param] += effects.failure[param];
+    });
+
+    // Apply parameter interdependencies
+    applyParameterInterdependencies();
+
+    // Clamp values to reasonable ranges
+    clampParameterValues();
+
+    addLog(`Task "${task.name}" failure worsened station parameters`, "error");
+  }
+
+  stationParamsRef.put({
+    ...stationParameters,
+    lastUpdate: Date.now(),
+  });
+}
+
+// Calculate bonus points based on station parameter balance
+function calculateParameterBalanceBonus() {
+  let bonusPoints = 0;
+  let balancedParameters = 0;
+  const totalParameters = 6;
+
+  // Check each parameter for optimal balance
+  // Power Level: Optimal between 80-100%
+  if (
+    stationParameters.powerLevel >= 80 &&
+    stationParameters.powerLevel <= 100
+  ) {
+    bonusPoints += 1;
+    balancedParameters++;
+  }
+
+  // Oxygen Level: Optimal between 85-100%
+  if (
+    stationParameters.oxygenLevel >= 85 &&
+    stationParameters.oxygenLevel <= 100
+  ) {
+    bonusPoints += 1;
+    balancedParameters++;
+  }
+
+  // Temperature: Optimal between 18-25°C
+  if (
+    stationParameters.temperature >= 18 &&
+    stationParameters.temperature <= 25
+  ) {
+    bonusPoints += 1;
+    balancedParameters++;
+  }
+
+  // Radiation Level: Optimal below 0.1
+  if (stationParameters.radiationLevel <= 0.1) {
+    bonusPoints += 1;
+    balancedParameters++;
+  }
+
+  // Pressure: Optimal between 980-1020 hPa
+  if (stationParameters.pressure >= 980 && stationParameters.pressure <= 1020) {
+    bonusPoints += 1;
+    balancedParameters++;
+  }
+
+  // Humidity: Optimal between 40-60%
+  if (stationParameters.humidity >= 40 && stationParameters.humidity <= 60) {
+    bonusPoints += 1;
+    balancedParameters++;
+  }
+
+  // Additional bonus for having all parameters balanced
+  if (balancedParameters === totalParameters) {
+    bonusPoints += 3; // Perfect balance bonus
+    addLog("PERFECT BALANCE! All parameters optimal.", "success");
+  } else if (balancedParameters >= 4) {
+    bonusPoints += 1; // Good balance bonus
+  }
+
+  return bonusPoints;
+}
+
+// Apply realistic parameter interdependencies
+function applyParameterInterdependencies() {
+  const originalValues = { ...stationParameters };
+
+  Object.keys(parameterInterdependencies).forEach((param) => {
+    const dependencies = parameterInterdependencies[param];
+    if (dependencies.affects) {
+      Object.keys(dependencies.affects).forEach((affectedParam) => {
+        const factor = dependencies.affects[affectedParam];
+        const change = originalValues[param] * factor * 0.01; // Small percentage effect
+        stationParameters[affectedParam] += change;
+      });
+    }
+  });
+}
+
+// Clamp parameter values to realistic ranges
+function clampParameterValues() {
+  // Power Level: 0-100%
+  stationParameters.powerLevel = Math.max(
+    0,
+    Math.min(100, stationParameters.powerLevel)
+  );
+
+  // Oxygen Level: 0-100%
+  stationParameters.oxygenLevel = Math.max(
+    0,
+    Math.min(100, stationParameters.oxygenLevel)
+  );
+
+  // Temperature: -50°C to 100°C
+  stationParameters.temperature = Math.max(
+    -50,
+    Math.min(100, stationParameters.temperature)
+  );
+
+  // Radiation Level: 0-1
+  stationParameters.radiationLevel = Math.max(
+    0,
+    Math.min(1, stationParameters.radiationLevel)
+  );
+
+  // Pressure: 800-1200 hPa
+  stationParameters.pressure = Math.max(
+    800,
+    Math.min(1200, stationParameters.pressure)
+  );
+
+  // Humidity: 0-100%
+  stationParameters.humidity = Math.max(
+    0,
+    Math.min(100, stationParameters.humidity)
+  );
+}
+
+function startParameterDisplayUpdates() {
+  // Update parameter display every 2 seconds for real-time feedback
+  safeSetInterval(() => {
+    updateStationParametersDisplay();
+  }, 2000);
+}

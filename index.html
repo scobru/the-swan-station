@@ -6,7 +6,51 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>THE SWAN</title>
   <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="src/style.css" />
+  <link rel="stylesheet" type="text/css" href="src/style.css" />
+
+  <!-- Fallback CSS in case external stylesheet fails to load -->
+  <style>
+    /* Critical fallback styles */
+    body {
+      font-family: 'VT323', monospace;
+      background-color: #000;
+      color: #00ff00;
+      margin: 0;
+      padding: 20px;
+    }
+
+    .log-container {
+      font-family: 'VT323', monospace;
+      background-color: #000;
+      color: #00ff00;
+      border: 1px solid #00ff00;
+      padding: 10px;
+      margin: 10px 0;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .input {
+      font-family: 'VT323', monospace;
+      background-color: #000;
+      color: #00ff00;
+      border: 1px solid #00ff00;
+      padding: 5px;
+    }
+
+    .big-timer {
+      font-family: 'VT323', monospace;
+      font-size: 48px;
+      color: #00ff00;
+      text-align: center;
+      margin: 20px 0;
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      position: relative !important;
+      z-index: 100 !important;
+    }
+  </style>
 
   <!-- Prevent iOS tap highlight -->
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -27,13 +71,16 @@
       <div class="contribution-indicator" id="contributionIndicator">CONTRIBUTING TO NETWORK</div>
     </div>
     <div class="rules-toggle">
+      <button id="aboutBtn" class="rules-button">[ ABOUT ]</button>
       <button id="rulesBtn" class="rules-button">[ STATION RULES ]</button>
     </div>
   </div>
 
   <div class="container">
     <h1><span>&gt;</span>:</h1>
-    <div id="bigTimer" class="big-timer">108</div>
+    <div id="bigTimer" class="big-timer"
+      style="display: block !important; visibility: visible !important; opacity: 1 !important; position: relative !important; z-index: 100 !important; font-size: 48px !important; color: #00ff00 !important; text-align: center !important; margin: 20px 0 !important;">
+      108</div>
     <div class="prompt">
       >: <input type="text" class="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
     </div>
@@ -45,6 +92,38 @@
   <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@multiavatar/multiavatar/multiavatar.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/shogun-core/dist/browser/shogun-core.js"></script>
+  <script>
+    // Check if CSS is loaded properly
+    window.addEventListener('load', function () {
+      const styles = document.styleSheets;
+      let cssLoaded = false;
+
+      for (let i = 0; i < styles.length; i++) {
+        try {
+          if (styles[i].href && styles[i].href.includes('style.css')) {
+            cssLoaded = true;
+            break;
+          }
+        } catch (e) {
+          // CORS error, but CSS might still be loaded
+          cssLoaded = true;
+        }
+      }
+
+      if (!cssLoaded) {
+        console.warn('External CSS not loaded, using fallback styles');
+        // Add additional fallback styles if needed
+        const fallback = document.createElement('style');
+        fallback.textContent = `
+          .stats-container { font-family: 'VT323', monospace; color: #00ff00; }
+          .header-section { font-family: 'VT323', monospace; color: #00ff00; }
+          .container { font-family: 'VT323', monospace; color: #00ff00; }
+          .prompt { font-family: 'VT323', monospace; color: #00ff00; }
+        `;
+        document.head.appendChild(fallback);
+      }
+    });
+  </script>
   <script src="src/script.js"></script>
 </body>
 

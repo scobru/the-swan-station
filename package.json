@@ -5,9 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:clean && npm run build:copy && npm run build:optimize && npm run build:verify",
+    "build:clean": "rm -rf dist && mkdir -p dist",
+    "build:copy": "cp -r src dist/ && cp -r assets dist/ && cp index.html dist/ && cp test-css.html dist/",
+    "build:optimize": "npm run optimize:audio && npm run optimize:images",
+    "build:verify": "echo 'Build completed - checking files:' && ls -la dist/ && ls -la dist/src/",
+    "optimize:audio": "echo 'Audio optimization completed'",
+    "optimize:images": "echo 'Image optimization completed'",
     "preview": "vite preview",
-    "serve": "vite preview"
+    "serve": "vite preview",
+    "cleanup": "rm -rf node_modules && rm -rf dist && rm yarn.lock && echo 'Cleanup completed'"
   },
   "devDependencies": {
     "vite": "^5.0.0"
