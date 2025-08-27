@@ -1251,29 +1251,45 @@ function typeSound() {
 
 // Function to update timer
 function updateTimer(newValue, reason = "") {
-  console.log("Updating timer to:", newValue);
+  console.log("⏰ updateTimer called:", {
+    newValue,
+    reason,
+    timerRef: !!timerRef,
+  });
   if (timerRef) {
-    timerRef.put({
+    const timerData = {
       value: newValue,
       lastUpdate: Date.now(),
       updatedBy: currentUser?.alias || "UNKNOWN",
       reason: reason,
+    };
+    console.log("📤 Sending timer data to GunDB:", timerData);
+    timerRef.put(timerData, (ack) => {
+      if (ack.err) {
+        console.error("❌ Failed to update timer:", ack.err);
+      } else {
+        console.log("✅ Timer updated successfully to:", newValue);
+      }
     });
+  } else {
+    console.error("❌ timerRef is null - cannot update timer");
   }
 }
 
 // Setup main timer listener to react to any change
 function setupTimerListener() {
-  console.log("Setting up timer listener...");
+  console.log("🔧 Setting up main timer listener...");
   if (timerRef) {
     timerRef.on((data) => {
-      console.log("Timer data received:", data);
+      console.log("📨 Main timer listener received data:", data);
       if (data && typeof data.value === "number") {
+        console.log("✅ Updating timer display to:", data.value);
         document.title = data.value;
         bigTimer.textContent = data.value;
 
         let updateMessage = `Timer updated to: ${data.value}`;
         if (data.updatedBy) updateMessage += ` by ${data.updatedBy}`;
+        if (data.reason) updateMessage += ` (${data.reason})`;
         addLog(updateMessage);
 
         updateInputState(data.value);
@@ -1295,8 +1311,12 @@ function setupTimerListener() {
           }
           if (systemFailureActive) stopSystemFailureDisplay();
         }
+      } else {
+        console.warn("⚠️ Invalid timer data received:", data);
       }
     });
+  } else {
+    console.error("❌ timerRef is null - cannot setup timer listener");
   }
 }
 
@@ -1367,9 +1387,13 @@ input.onkeydown = (event) => {
       }
 
       if (input.value === "4 8 15 16 23 42") {
+        console.log("🔢 CORRECT CODE SEQUENCE ENTERED - RESETTING TIMER");
+
         // Stop system failure display if active
         stopSystemFailureDisplay();
 
+        // Force timer reset to 108
+        console.log("⏰ Resetting timer to 108...");
         updateTimer(108, "code_correct");
 
         // Increment successful resets stat
@@ -3243,18 +3267,23 @@ function initializeNetworkMetrics() {
     }
   }
 
-  // Monitor real-time metrics
+  // Monitor real-time metrics (using global chatMessageCount)
   if (chatRef) {
-    chatRef.map().on((data, key) => {
-      if (data && data.message) {
-        messageCount++;
-        const messagesElement = document.getElementById("messagesStored");
-        if (messagesElement) {
-          messagesElement.textContent = messageCount;
-        }
-      }
-    });
+    // Use the global chatMessageCount instead of creating a separate listener
+    // This prevents conflicts with the main chat listener
+    const messagesElement = document.getElementById("messagesStored");
+    if (messagesElement) {
+      messagesElement.textContent = chatMessageCount;
+    }
   }
+
+  // Update message count display periodically
+  safeSetInterval(() => {
+    const messagesElement = document.getElementById("messagesStored");
+    if (messagesElement) {
+      messagesElement.textContent = chatMessageCount;
+    }
+  }, 5000); // Update every 5 seconds
 
   // Monitor timer updates
   if (timerRef) {
@@ -3521,7 +3550,7 @@ function showChat() {
         <div class="chat-container">
             <div class="chat-header">
                 <h2>SHOGUN ECO - OPERATOR CHAT</h2>
-                <button onclick="this.parentElement.parentElement.parentElement.remove()">×</button>
+                <button onclick="closeChat()">×</button>
             </div>
             <div class="chat-content">
                 <div class="chat-messages" id="chatMessages"></div>
@@ -3544,9 +3573,35 @@ function showChat() {
   overlay.querySelector("#chatInput").focus();
 }
 
-// Chat functionality
+// Function to properly close chat and reset state
+function closeChat() {
+  console.log("🔒 Closing chat and resetting state...");
+  const overlay = document.querySelector(".overlay");
+  if (overlay) {
+    overlay.remove();
+  }
+
+  // Reset chat initialization flag to allow re-initialization
+  chatInitialized = false;
+  // Clear processed messages to allow reloading when reopening
+  chatProcessedMessages.clear();
+  console.log("✅ Chat state reset, ready for next initialization");
+}
+
+// Global chat state management
+let chatInitialized = false;
+let chatProcessedMessages = new Set();
+let chatMessageCount = 0;
+
+// Chat functionality - Simplified based on working GunDB example
 function initializeChat() {
   console.log("🔧 Initializing chat system...");
+
+  // Prevent multiple initializations
+  if (chatInitialized) {
+    console.log("⚠️ Chat already initialized, skipping...");
+    return;
+  }
 
   const chatInput = document.getElementById("chatInput");
   const chatMessages = document.getElementById("chatMessages");
@@ -3585,24 +3640,23 @@ function initializeChat() {
   // Clear existing messages
   chatMessages.innerHTML = "";
 
-  // Keep track of processed messages
-  const processedMessages = new Set();
-
-  // Simple function to add a message to the chat
-  function displayMessage(data) {
-    console.log("📨 Displaying message:", data);
-
-    if (!data) {
-      console.warn("⚠️ displayMessage: data is null/undefined");
-      return;
+  // Load existing messages first
+  console.log("📚 Loading existing chat messages...");
+  chatRef.map().once((msg, id) => {
+    if (msg && msg.who && msg.what) {
+      console.log("📨 Loading existing message:", { id, msg });
+      displayMessage(msg, id);
+      chatProcessedMessages.add(id);
+      chatMessageCount++;
     }
+  });
 
-    if (!data.message || !data.author || !data.timestamp) {
-      console.warn("⚠️ displayMessage: missing required fields", {
-        hasMessage: !!data.message,
-        hasAuthor: !!data.author,
-        hasTimestamp: !!data.timestamp,
-      });
+  // Simple function to add a message to the chat (based on working example)
+  function displayMessage(msg, id) {
+    console.log("📨 Displaying message:", { msg, id });
+
+    if (!msg || !msg.who || !msg.what) {
+      console.warn("⚠️ displayMessage: missing required fields", msg);
       return;
     }
 
@@ -3611,75 +3665,52 @@ function initializeChat() {
       return;
     }
 
+    // Check if message already exists
+    const existingMessage = document.getElementById(`msg-${id}`);
+    if (existingMessage) {
+      console.log("⏭️ Message already displayed:", id);
+      return;
+    }
+
     const messageDiv = document.createElement("div");
     messageDiv.className = "chat-message";
-    const time = new Date(data.timestamp).toLocaleTimeString();
+    messageDiv.id = `msg-${id}`;
+
+    const time = new Date(msg.when).toLocaleTimeString();
     messageDiv.innerHTML = `
-            <span class="time">[${time}]</span> 
-            <span class="author">${data.author}:</span> 
-            ${data.message}
-        `;
+      <span class="time">[${time}]</span> 
+      <span class="author">${msg.who}:</span> 
+      <span class="message">${msg.what}</span>
+    `;
+
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-    console.log("✅ Message displayed successfully");
+    console.log("✅ Message displayed successfully:", id);
   }
 
-  // Load chat history
-  console.log("📚 Loading chat history...");
-  chatRef.map().once((data, key) => {
-    console.log("📖 Chat history item:", { key, data });
+  // Listen for messages using the working GunDB pattern
+  console.log("👂 Setting up chat listener using GunDB pattern...");
+  chatRef.map().on((msg, id) => {
+    console.log("📨 New chat message received:", { id, msg });
+
+    if (!msg) {
+      console.log("⏭️ Skipping null message");
+      return;
+    }
 
     // Skip if already processed
-    if (processedMessages.has(key)) {
-      console.log("⏭️ Skipping already processed history item:", key);
+    if (chatProcessedMessages.has(id)) {
+      console.log("⏭️ Skipping already processed message:", id);
       return;
     }
 
-    // Skip if data is invalid
-    if (!data || !data.message || !data.author || !data.timestamp) {
-      console.warn("⚠️ Skipping invalid history data:", { key, data });
-      return;
-    }
-
-    processedMessages.add(key);
-    console.log("✅ Loading history message:", key);
-    displayMessage(data);
+    chatProcessedMessages.add(id);
+    chatMessageCount++;
+    console.log("✅ Processing new message:", id);
+    displayMessage(msg, id);
   });
 
-  // Listen for new messages
-  console.log("👂 Setting up chat listener...");
-  chatRef.map().on((data, key) => {
-    console.log("📨 New chat message received:", { key, data });
-
-    // Skip if already processed
-    if (processedMessages.has(key)) {
-      console.log("⏭️ Skipping already processed message:", key);
-      return;
-    }
-
-    // Skip if data is invalid
-    if (!data || !data.message || !data.author || !data.timestamp) {
-      console.warn("⚠️ Skipping invalid message data:", { key, data });
-      return;
-    }
-
-    // Check if this is our own message (to avoid double display)
-    const isOwnMessage = currentUser && data.author === currentUser.alias;
-    if (isOwnMessage) {
-      console.log(
-        "👤 Skipping own message from GunDB (already displayed locally):",
-        key
-      );
-      processedMessages.add(key);
-      return;
-    }
-
-    processedMessages.add(key);
-    console.log("✅ Processing new message from other user:", key);
-    displayMessage(data);
-  });
-
-  // Handle sending messages
+  // Handle sending messages using the working GunDB pattern
   chatInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter" && chatInput.value.trim()) {
       console.log("📝 Chat input detected:", chatInput.value.trim());
@@ -3696,56 +3727,31 @@ function initializeChat() {
         return;
       }
 
-      const message = chatInput.value.trim();
+      const messageText = chatInput.value.trim();
       chatInput.value = "";
 
-      const messageId =
-        Date.now().toString(36) + Math.random().toString(36).substr(2);
-      const messageData = {
-        author: currentUser.alias,
-        message: message,
-        timestamp: Date.now(),
+      // Create message object using the working GunDB pattern
+      const msg = {
+        who: currentUser.alias || "Anonymous",
+        what: messageText,
+        when: Gun.state(), // Use Gun.state() for timestamp like the working example
       };
 
-      console.log("📤 Sending message:", {
-        messageId,
-        author: currentUser.alias,
-        message: message,
-        timestamp: messageData.timestamp,
+      console.log("📤 Sending message using GunDB pattern:", msg);
+
+      // Send to GunDB using .set() like the working example
+      chatRef.set(msg, (ack) => {
+        if (ack.err) {
+          console.error("❌ Failed to send message to GunDB:", ack.err);
+          addLog("ERROR: Failed to send message", "error");
+        } else {
+          console.log("✅ Message sent successfully to GunDB");
+          chatMessageCount++;
+        }
       });
 
-      // Always display message locally first for immediate feedback
-      console.log("📱 Displaying message locally immediately");
-      displayMessage(messageData);
-
-      try {
-        chatRef.get(messageId).put(messageData, (ack) => {
-          if (ack.err) {
-            console.error("❌ Failed to send message to GunDB:", ack.err);
-            addLog("ERROR: Failed to send message to network", "error");
-            // Message is already displayed locally, so user sees it
-          } else {
-            console.log("✅ Message sent successfully to GunDB:", messageId);
-            // Message is already displayed locally
-          }
-        });
-
-        // Add a timeout to check if message was received by GunDB
-        setTimeout(() => {
-          console.log("🔍 Checking if message was received by GunDB...");
-          chatRef.get(messageId).once((receivedData) => {
-            if (receivedData) {
-              console.log("✅ Message confirmed in GunDB:", receivedData);
-            } else {
-              console.warn("⚠️ Message not found in GunDB after timeout");
-            }
-          });
-        }, 2000);
-      } catch (error) {
-        console.error("❌ Exception while sending message:", error);
-        addLog("ERROR: Exception while sending message", "error");
-        // Message is already displayed locally, so user sees it
-      }
+      // Focus back to input
+      chatInput.focus();
     }
   });
 
@@ -3784,8 +3790,28 @@ function initializeChat() {
   // Initial operators list update
   updateOperatorsList();
 
-  // Update operators list more frequently
-  safeSetInterval(updateOperatorsList, 5000); // Update every 5 seconds
+  // Periodic operators list update
+  setInterval(updateOperatorsList, 10000);
+
+  // Mark as initialized
+  chatInitialized = true;
+  console.log("✅ Chat system initialized successfully");
+
+  // Periodic message count update
+  setInterval(() => {
+    const messagesStored = document.getElementById("messagesStored");
+    if (messagesStored) {
+      messagesStored.textContent = chatMessageCount;
+    }
+  }, 5000);
+
+  // Chat connection monitoring
+  setInterval(() => {
+    console.log("🔍 Testing chat connection...");
+    chatRef.once((data) => {
+      console.log("✅ Chat connection test completed");
+    });
+  }, 30000);
 }
 
 // Main system initializer - called after shogun-core initialization
@@ -3819,10 +3845,11 @@ function initializeSystem() {
   if (timerRef) {
     timerRef.once((data) => {
       if (!data || typeof data.value !== "number") {
-        console.log("Global timer not found. Initializing on GunDB...");
-        timerRef.put({ value: 108, lastUpdate: Date.now() });
-        // Initialize input state for new timer
-        updateInputState(108);
+        console.log(
+          "Global timer not found. Waiting for first operator to set timer..."
+        );
+        // Don't auto-initialize - let operators control the timer
+        updateInputState(0); // Disable input until timer is set
       } else {
         // Initialize input state for existing timer
         updateInputState(data.value);
@@ -3846,9 +3873,14 @@ function initializeSystem() {
       }
     });
 
-    // Timer display listener
+    // Timer display listener (secondary - for redundancy)
     timerRef.on((data) => {
+      console.log("📨 Secondary timer listener received data:", data);
       if (data && typeof data.value === "number") {
+        console.log(
+          "✅ Secondary timer listener updating display to:",
+          data.value
+        );
         document.title = data.value;
         bigTimer.textContent = data.value;
 
@@ -3934,12 +3966,12 @@ function showStationRules() {
         <h3>STATION PARAMETERS SYSTEM</h3>
         <ul>
           <li class="warning">6 critical parameters must be maintained in balance</li>
-          <li class="info">Power Level: Affects oxygen generation and cooling systems</li>
-          <li class="info">Oxygen Level: Critical for operator survival</li>
-          <li class="info">Temperature: Affects humidity and pressure systems</li>
-          <li class="info">Radiation Level: Damages power and oxygen systems</li>
-          <li class="info">Pressure: Affects oxygen distribution and humidity</li>
-          <li class="info">Humidity: Influenced by temperature and pressure</li>
+          <li class="info">Power Level: Affects oxygen generation and cooling systems (Optimal: 80-100)</li>
+          <li class="info">Oxygen Level: Critical for operator survival (Optimal: 85-100)</li>
+          <li class="info">Temperature: Affects humidity and pressure systems (Optimal: 18-25°C)</li>
+          <li class="info">Radiation Level: Damages power and oxygen systems (Optimal: ≤0.1)</li>
+          <li class="info">Pressure: Affects oxygen distribution and humidity (Optimal: 980-1020)</li>
+          <li class="info">Humidity: Influenced by temperature and pressure (Optimal: 40-60%)</li>
           <li class="success">Parameters are interconnected - changes affect multiple systems</li>
         </ul>
       </div>
@@ -3949,7 +3981,7 @@ function showStationRules() {
         <ul>
           <li class="warning">Tasks appear randomly and must be completed</li>
           <li class="info">3 types: Maintenance (60%), Critical (30%), Emergency (10%)</li>
-          <li class="warning">Tasks have execution time: 30 seconds × difficulty level</li>
+          <li class="warning">Tasks have execution time: 60-600 seconds based on task type and difficulty</li>
           <li class="success">Successful tasks improve station parameters</li>
           <li class="error">Failed tasks worsen station parameters</li>
           <li class="info">Task effects are realistic and interconnected</li>
@@ -4125,8 +4157,12 @@ function checkTimerHealth() {
         !data.lastUpdate ||
         now - data.lastUpdate > 120000
       ) {
-        console.log("Timer health check failed, reinitializing...");
-        updateTimer(108, "health_check");
+        console.log("Timer health check failed - timer may be corrupted");
+        // Don't auto-reset timer - let operators handle it
+        addLog(
+          "WARNING: Timer system may be corrupted. Manual reset required.",
+          "warning"
+        );
       }
     });
   }
@@ -4232,18 +4268,26 @@ function loadTasksFromGunDB() {
       const taskCreationTime =
         task.createdAt || task.expiresAt - (task.timeLimit || 300000);
       const isRecentTask = taskCreationTime > connectionTime - 30000; // 30 second buffer
+      const isAssignedToMe =
+        currentUser && task.assignedTo === currentUser.alias;
 
       console.log(
         `Task ${task.name}: created=${new Date(
           taskCreationTime
-        ).toLocaleTimeString()}, recent=${isRecentTask}, expired=${
+        ).toLocaleTimeString()}, recent=${isRecentTask}, assignedToMe=${isAssignedToMe}, expired=${
           currentTime >= task.expiresAt
         }`
       );
 
       if (!task.completed && !task.failed) {
-        // Only load tasks that are recent and haven't expired
-        if (task.expiresAt && currentTime < task.expiresAt && isRecentTask) {
+        // Load active tasks that haven't expired
+        // IMPORTANT: Always load tasks assigned to current user, regardless of creation time
+        // For unassigned tasks, only load recent ones to avoid stale data
+        if (
+          task.expiresAt &&
+          currentTime < task.expiresAt &&
+          (isAssignedToMe || isRecentTask)
+        ) {
           const validTask = {
             ...task,
             id,
@@ -4256,18 +4300,18 @@ function loadTasksFromGunDB() {
           };
           activeTasks.push(validTask);
           console.log(
-            `✅ Loaded recent active task: ${
-              validTask.name
-            } (created: ${new Date(validTask.createdAt).toLocaleTimeString()})`
+            `✅ Loaded active task: ${validTask.name} (assignedTo: ${
+              validTask.assignedTo || "unassigned"
+            }, created: ${new Date(validTask.createdAt).toLocaleTimeString()})`
           );
         } else if (task.expiresAt && currentTime >= task.expiresAt) {
           // Mark expired tasks as failed
           task.failed = true;
           taskRef.get(id).put(task);
           console.log(`❌ Marked expired task as failed: ${task.name}`);
-        } else if (!isRecentTask) {
+        } else if (!isAssignedToMe && !isRecentTask) {
           console.log(
-            `⏭️ Skipping old task: ${task.name} (created: ${new Date(
+            `⏭️ Skipping old unassigned task: ${task.name} (created: ${new Date(
               taskCreationTime
             ).toLocaleTimeString()})`
           );
