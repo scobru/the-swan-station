@@ -590,7 +590,22 @@ function stopApp() {
     cleanupRegistry.intervals.delete(focusInterval);
   }
   focusInterval = null;
-  console.log("App UI focus paused.");
+
+  // Clear any pending timeouts
+  if (window.appStartTimeout) {
+    clearTimeout(window.appStartTimeout);
+    window.appStartTimeout = null;
+  }
+  if (window.profileTimeout) {
+    clearTimeout(window.profileTimeout);
+    window.profileTimeout = null;
+  }
+  if (window.profileListenerTimeout) {
+    clearTimeout(window.profileListenerTimeout);
+    window.profileListenerTimeout = null;
+  }
+
+  console.log("App UI focus paused and timeouts cleared.");
 }
 
 function startApp(alias) {
@@ -620,7 +635,39 @@ function startApp(alias) {
   // Load existing tasks from GunDB (after currentUser is set)
   // Use a flag to prevent sync conflicts during initial load
   window.initialTaskLoadComplete = false;
+
+  // Add a comprehensive safety timeout to prevent the app from getting stuck
+  const appStartTimeout = setTimeout(() => {
+    console.warn("⚠️ App initialization timeout - forcing completion");
+    window.initialTaskLoadComplete = true;
+    updateTaskDisplay();
+
+    // Force UI to show even if profile loading is stuck
+    const container = document.querySelector(".container");
+    const headerSection = document.querySelector(".header-section");
+    const statsContainer = document.getElementById("statsContainer");
+
+    if (container) {
+      container.style.display = "flex";
+      container.classList.add("centered");
+    }
+
+    if (headerSection) {
+      headerSection.style.display = "none";
+    }
+
+    if (statsContainer) {
+      statsContainer.style.display = "none";
+    }
+
+    console.log("🚀 App forced to start with timeout protection");
+  }, 15000); // 15 second timeout
+
+  // Start task loading with completion callback
   loadTasksFromGunDB();
+
+  // Store the app timeout reference for cleanup
+  window.appStartTimeout = appStartTimeout;
 
   // Keep operator status updated
   const operatorUpdateInterval = safeSetInterval(() => {
@@ -633,27 +680,53 @@ function startApp(alias) {
     }
   }, 30000);
 
-  // Fetch or initialize user profile
+  // Fetch or initialize user profile with timeout protection
+  console.log("🔍 Fetching user profile...");
+  const profileTimeout = setTimeout(() => {
+    console.warn("⚠️ Profile fetch timeout - using default values");
+    currentUser.points = 5;
+    currentUser.level = 1;
+  }, 5000); // 5 second timeout for profile fetch
+
   user.get("profile").once((profile) => {
+    clearTimeout(profileTimeout);
+    console.log("📋 Profile data received:", profile);
+
     if (!profile) {
+      console.log("🆕 Creating initial profile for new user");
       const initialProfile = { points: 5, level: 1, resetStreak: 0 };
       user.get("profile").put(initialProfile);
       // Also add the new user to the public leaderboard
       gun.get("leaderboard").get(alias).put({ points: 5, level: 1 });
+      currentUser.points = 5;
+      currentUser.level = 1;
     } else {
+      console.log("✅ Using existing profile data");
       currentUser.points = profile.points;
       currentUser.level = getLevelFromPoints(profile.points);
     }
   });
 
-  // Listen for profile updates
+  // Listen for profile updates with timeout protection
+  const profileListenerTimeout = setTimeout(() => {
+    console.warn("⚠️ Profile listener timeout - removing listener");
+    user.get("profile").off(); // Remove the listener if it times out
+  }, 10000); // 10 second timeout for profile listener
+
   user.get("profile").on((profile) => {
+    clearTimeout(profileListenerTimeout);
+    console.log("🔄 Profile update received:", profile);
+
     if (profile) {
       currentUser.points = profile.points;
       currentUser.level = getLevelFromPoints(profile.points);
       if (stats) updateStatsUI(stats);
     }
   });
+
+  // Store the profile timeout references for cleanup
+  window.profileTimeout = profileTimeout;
+  window.profileListenerTimeout = profileListenerTimeout;
 
   // Show the main container and hide header
   const container = document.querySelector(".container");
@@ -791,6 +864,9 @@ function showAuthPrompt() {
             <input type="password" id="password" placeholder="PASSWORD" autocomplete="current-password" />
             <input type="password" id="confirmPassword" placeholder="CONFIRM PASSWORD" autocomplete="new-password" style="display: none;" />
             <div class="auth-error" id="authError"></div>
+            <div class="auth-instructions" id="authInstructions" style="display: none; color: #00ff00; font-size: 12px; margin: 10px 0; text-align: center;">
+                Click CONFIRM to complete registration
+            </div>
             <div class="auth-buttons">
                 <div class="button" id="loginBtn">LOGIN</div>
                 <div class="button" id="signupBtn">SIGN UP</div>
@@ -805,31 +881,73 @@ function showAuthPrompt() {
   const passwordInput = overlay.querySelector("#password");
   const confirmPasswordInput = overlay.querySelector("#confirmPassword");
   const errorDiv = overlay.querySelector("#authError");
+  const instructionsDiv = overlay.querySelector("#authInstructions");
 
   overlay.querySelector("#loginBtn").onclick = async () => {
     try {
       // Hide confirm password field and confirm button for login
       confirmPasswordInput.style.display = "none";
       overlay.querySelector("#confirmBtn").style.display = "none";
-      errorDiv.textContent = "";
+      instructionsDiv.style.display = "none";
+
+      // Show loading state
+      const loginBtn = overlay.querySelector("#loginBtn");
+      const originalText = loginBtn.textContent;
+      loginBtn.textContent = "LOGGING IN...";
+      loginBtn.style.opacity = "0.7";
+      loginBtn.disabled = true;
+      errorDiv.textContent = "Authenticating...";
+      errorDiv.style.color = "#00ff00"; // Green for info
+
+      // Validate inputs
+      if (!usernameInput.value.trim()) {
+        errorDiv.textContent = "Please enter a username";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        loginBtn.textContent = originalText;
+        loginBtn.style.opacity = "1";
+        loginBtn.disabled = false;
+        return;
+      }
+
+      if (!passwordInput.value.trim()) {
+        errorDiv.textContent = "Please enter a password";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        loginBtn.textContent = originalText;
+        loginBtn.style.opacity = "1";
+        loginBtn.disabled = false;
+        return;
+      }
 
       const result = await shogun.login(
         usernameInput.value,
         passwordInput.value
       );
       if (result.success) {
-        overlay.remove();
-        // Store user alias in GunDB for future reference
-        gun
-          .get("users")
-          .get(result.userPub)
-          .put({ alias: usernameInput.value });
-        startApp(usernameInput.value);
+        errorDiv.textContent = "Login successful! Starting application...";
+        errorDiv.style.color = "#00ff00"; // Green for success
+        setTimeout(() => {
+          overlay.remove();
+          // Store user alias in GunDB for future reference
+          gun
+            .get("users")
+            .get(result.userPub)
+            .put({ alias: usernameInput.value });
+          startApp(usernameInput.value);
+        }, 1000);
       } else {
         errorDiv.textContent = result.error || "Login failed";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        loginBtn.textContent = originalText;
+        loginBtn.style.opacity = "1";
+        loginBtn.disabled = false;
       }
     } catch (error) {
       errorDiv.textContent = error.message || "Login failed";
+      errorDiv.style.color = "#ff0000"; // Red for error
+      const loginBtn = overlay.querySelector("#loginBtn");
+      loginBtn.textContent = "LOGIN";
+      loginBtn.style.opacity = "1";
+      loginBtn.disabled = false;
     }
   };
 
@@ -837,21 +955,68 @@ function showAuthPrompt() {
   overlay.querySelector("#signupBtn").onclick = () => {
     confirmPasswordInput.style.display = "block";
     overlay.querySelector("#confirmBtn").style.display = "inline-block";
+    instructionsDiv.style.display = "block";
     errorDiv.textContent = "Please confirm your password";
+    errorDiv.style.color = "#00ff00"; // Green for info
   };
 
   // Add actual signup handler
   const performSignup = async () => {
     try {
+      // Show loading state
+      const confirmBtn = overlay.querySelector("#confirmBtn");
+      const originalText = confirmBtn.textContent;
+      confirmBtn.textContent = "REGISTERING...";
+      confirmBtn.style.opacity = "0.7";
+      confirmBtn.disabled = true;
+      errorDiv.textContent = "Creating account...";
+      errorDiv.style.color = "#00ff00"; // Green for info
+
       // Validate password length first
       if (passwordInput.value.length < 12) {
         errorDiv.textContent = "Password must be at least 12 characters long";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        confirmBtn.textContent = originalText;
+        confirmBtn.style.opacity = "1";
+        confirmBtn.disabled = false;
         return;
       }
 
       // Validate passwords match
       if (passwordInput.value !== confirmPasswordInput.value) {
         errorDiv.textContent = "Passwords do not match";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        confirmBtn.textContent = originalText;
+        confirmBtn.style.opacity = "1";
+        confirmBtn.disabled = false;
+        return;
+      }
+
+      // Validate username
+      if (!usernameInput.value.trim()) {
+        errorDiv.textContent = "Please enter a username";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        confirmBtn.textContent = originalText;
+        confirmBtn.style.opacity = "1";
+        confirmBtn.disabled = false;
+        return;
+      }
+
+      if (usernameInput.value.length < 3) {
+        errorDiv.textContent = "Username must be at least 3 characters long";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        confirmBtn.textContent = originalText;
+        confirmBtn.style.opacity = "1";
+        confirmBtn.disabled = false;
+        return;
+      }
+
+      if (!passwordInput.value.trim()) {
+        errorDiv.textContent = "Please enter a password";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        confirmBtn.textContent = originalText;
+        confirmBtn.style.opacity = "1";
+        confirmBtn.disabled = false;
         return;
       }
 
@@ -860,27 +1025,48 @@ function showAuthPrompt() {
         passwordInput.value
       );
       if (result.success) {
+        errorDiv.textContent = "Account created! Logging in...";
+        errorDiv.style.color = "#00ff00"; // Green for success
+
         // Store user alias in GunDB for future reference
         gun
           .get("users")
           .get(result.userPub)
           .put({ alias: usernameInput.value });
+
         // Auto-login after successful signup
         const loginResult = await shogun.login(
           usernameInput.value,
           passwordInput.value
         );
         if (loginResult.success) {
-          overlay.remove();
-          startApp(usernameInput.value);
+          errorDiv.textContent = "Login successful! Starting application...";
+          setTimeout(() => {
+            overlay.remove();
+            startApp(usernameInput.value);
+          }, 1000);
         } else {
-          errorDiv.textContent = "Signup successful but login failed";
+          errorDiv.textContent =
+            "Signup successful but login failed. Please try logging in manually.";
+          errorDiv.style.color = "#ffaa00"; // Orange for warning
+          confirmBtn.textContent = originalText;
+          confirmBtn.style.opacity = "1";
+          confirmBtn.disabled = false;
         }
       } else {
         errorDiv.textContent = result.error || "Signup failed";
+        errorDiv.style.color = "#ff0000"; // Red for error
+        confirmBtn.textContent = originalText;
+        confirmBtn.style.opacity = "1";
+        confirmBtn.disabled = false;
       }
     } catch (error) {
       errorDiv.textContent = error.message || "Signup failed";
+      errorDiv.style.color = "#ff0000"; // Red for error
+      const confirmBtn = overlay.querySelector("#confirmBtn");
+      confirmBtn.textContent = "CONFIRM";
+      confirmBtn.style.opacity = "1";
+      confirmBtn.disabled = false;
     }
   };
 
@@ -3964,12 +4150,33 @@ function loadTasksFromGunDB() {
     ).toLocaleTimeString()}`
   );
 
-  // Load tasks from GunDB
-  taskRef.map().once((task, id) => {
+  // Track completion of GunDB operations
+  let tasksProcessed = 0;
+  let totalTasks = 0;
+  let loadStartTime = Date.now();
+
+  // Set a maximum timeout to prevent infinite waiting
+  const maxLoadTime = 10000; // 10 seconds
+  const loadTimeout = setTimeout(() => {
+    console.warn(
+      "⚠️ Task loading timeout reached, proceeding with available data"
+    );
+    completeTaskLoading();
+  }, maxLoadTime);
+
+  // Load tasks from GunDB with completion tracking
+  const taskMap = taskRef.map();
+
+  taskMap.once((task, id) => {
     if (task && typeof task === "object") {
+      totalTasks++;
+      console.log(`Processing task ${totalTasks}: ${task.name || "Unknown"}`);
+
       // Validate task data
       if (!task.name || !task.type || !task.expiresAt) {
         console.warn("Invalid task data loaded from GunDB:", task);
+        tasksProcessed++;
+        checkCompletion();
         return;
       }
 
@@ -4032,10 +4239,30 @@ function loadTasksFromGunDB() {
         }
       }
     }
+
+    tasksProcessed++;
+    checkCompletion();
   });
 
-  // Update display after loading
-  setTimeout(() => {
+  // Function to check if all tasks have been processed
+  function checkCompletion() {
+    console.log(`Progress: ${tasksProcessed} tasks processed`);
+
+    // If we've processed all tasks or reached a reasonable timeout, complete
+    if (tasksProcessed >= totalTasks || tasksProcessed > 0) {
+      const elapsed = Date.now() - loadStartTime;
+      console.log(
+        `Task loading completed in ${elapsed}ms. Processed ${tasksProcessed} tasks.`
+      );
+      clearTimeout(loadTimeout);
+      completeTaskLoading();
+    }
+  }
+
+  // Function to complete the task loading process
+  function completeTaskLoading() {
+    console.log("Finalizing task loading...");
+
     // Remove any duplicates that might have been created
     removeDuplicateTasks();
     updateTaskDisplay();
@@ -4043,33 +4270,69 @@ function loadTasksFromGunDB() {
       `📊 Final result: ${activeTasks.length} active tasks and ${taskHistory.length} historical tasks`
     );
 
-    // Mark initial load as complete
+    // Mark initial load as complete and clear timeouts
     window.initialTaskLoadComplete = true;
+    if (window.appStartTimeout) {
+      clearTimeout(window.appStartTimeout);
+      window.appStartTimeout = null;
+      console.log("✅ App initialization timeout cleared");
+    }
+    if (window.profileTimeout) {
+      clearTimeout(window.profileTimeout);
+      window.profileTimeout = null;
+      console.log("✅ Profile timeout cleared");
+    }
+    if (window.profileListenerTimeout) {
+      clearTimeout(window.profileListenerTimeout);
+      window.profileListenerTimeout = null;
+      console.log("✅ Profile listener timeout cleared");
+    }
     console.log("✅ Initial task load complete - sync now active");
-  }, 1000);
+  }
 }
 
 function removeDuplicateTasks() {
   console.log("Checking for duplicate tasks...");
+  console.log(`Starting with ${activeTasks.length} active tasks`);
 
   const seenIds = new Set();
   const uniqueTasks = [];
   let duplicatesRemoved = 0;
+  let processedCount = 0;
 
   for (const task of activeTasks) {
+    processedCount++;
+
+    if (!task) {
+      console.warn(
+        `Skipping null/undefined task at index ${processedCount - 1}`
+      );
+      continue;
+    }
+
     if (task.id && !seenIds.has(task.id)) {
       seenIds.add(task.id);
       uniqueTasks.push(task);
     } else {
       duplicatesRemoved++;
-      console.warn(`Removed duplicate task: ${task.name} (ID: ${task.id})`);
+      console.warn(
+        `Removed duplicate task: ${task.name || "Unknown"} (ID: ${
+          task.id || "No ID"
+        })`
+      );
     }
   }
 
   if (duplicatesRemoved > 0) {
     activeTasks = uniqueTasks;
-    console.log(`Removed ${duplicatesRemoved} duplicate tasks`);
+    console.log(
+      `Removed ${duplicatesRemoved} duplicate tasks. Final count: ${activeTasks.length}`
+    );
+  } else {
+    console.log("No duplicate tasks found");
   }
+
+  console.log("Duplicate task check completed");
 }
 
 function cleanupCorruptedTasks() {
@@ -4746,6 +5009,17 @@ function checkParameterAlerts() {
 function updateTaskDisplay() {
   const taskDisplay = document.getElementById("taskDisplay");
   if (taskDisplay) {
+    // Show loading indicator if initial task load is not complete
+    if (!window.initialTaskLoadComplete) {
+      taskDisplay.innerHTML = `
+        <div class="loading-tasks">
+          <div class="loading-spinner">⏳</div>
+          <div class="loading-text">Loading tasks from network...</div>
+        </div>
+      `;
+      return;
+    }
+
     // Show operator's active task count
     let operatorTaskCount = "";
     if (currentUser) {

@@ -3800,4 +3800,35 @@ body {
           flex-shrink: 0;
       }
   }
-  
+
+/* Loading indicator styles */
+.loading-tasks {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  background: rgba(0, 255, 0, 0.05);
+  border: 1px solid rgba(0, 255, 0, 0.2);
+  border-radius: 8px;
+  margin: 20px 0;
+}
+
+.loading-spinner {
+  font-size: 2em;
+  margin-bottom: 15px;
+  animation: spin 2s linear infinite;
+}
+
+.loading-text {
+  color: #00ff00;
+  font-size: 1.1em;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
