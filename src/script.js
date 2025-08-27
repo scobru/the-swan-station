@@ -3451,14 +3451,40 @@ function showChat() {
 
 // Chat functionality
 function initializeChat() {
+  console.log("🔧 Initializing chat system...");
+
   const chatInput = document.getElementById("chatInput");
   const chatMessages = document.getElementById("chatMessages");
   const operatorsList = document.getElementById("operatorsList");
 
+  console.log("📋 Chat elements found:", {
+    chatInput: !!chatInput,
+    chatMessages: !!chatMessages,
+    operatorsList: !!operatorsList,
+  });
+
   // Ensure all required elements exist
   if (!chatInput || !chatMessages || !operatorsList) {
-    console.error("Chat elements not found. Chat initialization aborted.");
+    console.error("❌ Chat elements not found. Chat initialization aborted.");
     return;
+  }
+
+  console.log("✅ Chat elements found, proceeding with initialization");
+
+  // Check if chatRef is initialized
+  if (!chatRef) {
+    console.error("❌ chatRef not initialized. Chat system cannot function.");
+    addLog("ERROR: Chat system not initialized", "error");
+    return;
+  }
+
+  console.log("✅ chatRef is initialized:", chatRef);
+
+  // Check if user is logged in
+  if (!currentUser) {
+    console.warn("⚠️ currentUser not defined during chat initialization");
+  } else {
+    console.log("✅ User logged in:", currentUser.alias);
   }
 
   // Clear existing messages
@@ -3469,7 +3495,26 @@ function initializeChat() {
 
   // Simple function to add a message to the chat
   function displayMessage(data) {
-    if (!data || !data.message || !data.author || !data.timestamp) return;
+    console.log("📨 Displaying message:", data);
+
+    if (!data) {
+      console.warn("⚠️ displayMessage: data is null/undefined");
+      return;
+    }
+
+    if (!data.message || !data.author || !data.timestamp) {
+      console.warn("⚠️ displayMessage: missing required fields", {
+        hasMessage: !!data.message,
+        hasAuthor: !!data.author,
+        hasTimestamp: !!data.timestamp,
+      });
+      return;
+    }
+
+    if (!chatMessages) {
+      console.error("❌ displayMessage: chatMessages element not found");
+      return;
+    }
 
     const messageDiv = document.createElement("div");
     messageDiv.className = "chat-message";
@@ -3481,27 +3526,81 @@ function initializeChat() {
         `;
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+    console.log("✅ Message displayed successfully");
   }
 
   // Load chat history
+  console.log("📚 Loading chat history...");
   chatRef.map().once((data, key) => {
-    if (!processedMessages.has(key)) {
-      processedMessages.add(key);
-      displayMessage(data);
+    console.log("📖 Chat history item:", { key, data });
+
+    // Skip if already processed
+    if (processedMessages.has(key)) {
+      console.log("⏭️ Skipping already processed history item:", key);
+      return;
     }
+
+    // Skip if data is invalid
+    if (!data || !data.message || !data.author || !data.timestamp) {
+      console.warn("⚠️ Skipping invalid history data:", { key, data });
+      return;
+    }
+
+    processedMessages.add(key);
+    console.log("✅ Loading history message:", key);
+    displayMessage(data);
   });
 
   // Listen for new messages
+  console.log("👂 Setting up chat listener...");
   chatRef.map().on((data, key) => {
-    if (!processedMessages.has(key)) {
-      processedMessages.add(key);
-      displayMessage(data);
+    console.log("📨 New chat message received:", { key, data });
+
+    // Skip if already processed
+    if (processedMessages.has(key)) {
+      console.log("⏭️ Skipping already processed message:", key);
+      return;
     }
+
+    // Skip if data is invalid
+    if (!data || !data.message || !data.author || !data.timestamp) {
+      console.warn("⚠️ Skipping invalid message data:", { key, data });
+      return;
+    }
+
+    // Check if this is our own message (to avoid double display)
+    const isOwnMessage = currentUser && data.author === currentUser.alias;
+    if (isOwnMessage) {
+      console.log(
+        "👤 Skipping own message from GunDB (already displayed locally):",
+        key
+      );
+      processedMessages.add(key);
+      return;
+    }
+
+    processedMessages.add(key);
+    console.log("✅ Processing new message from other user:", key);
+    displayMessage(data);
   });
 
   // Handle sending messages
   chatInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter" && chatInput.value.trim() && currentUser) {
+    if (e.key === "Enter" && chatInput.value.trim()) {
+      console.log("📝 Chat input detected:", chatInput.value.trim());
+
+      if (!currentUser) {
+        console.error("❌ Cannot send message: currentUser not defined");
+        addLog("ERROR: Must be logged in to send messages", "error");
+        return;
+      }
+
+      if (!chatRef) {
+        console.error("❌ Cannot send message: chatRef not initialized");
+        addLog("ERROR: Chat system not initialized", "error");
+        return;
+      }
+
       const message = chatInput.value.trim();
       chatInput.value = "";
 
@@ -3513,7 +3612,45 @@ function initializeChat() {
         timestamp: Date.now(),
       };
 
-      chatRef.get(messageId).put(messageData);
+      console.log("📤 Sending message:", {
+        messageId,
+        author: currentUser.alias,
+        message: message,
+        timestamp: messageData.timestamp,
+      });
+
+      // Always display message locally first for immediate feedback
+      console.log("📱 Displaying message locally immediately");
+      displayMessage(messageData);
+
+      try {
+        chatRef.get(messageId).put(messageData, (ack) => {
+          if (ack.err) {
+            console.error("❌ Failed to send message to GunDB:", ack.err);
+            addLog("ERROR: Failed to send message to network", "error");
+            // Message is already displayed locally, so user sees it
+          } else {
+            console.log("✅ Message sent successfully to GunDB:", messageId);
+            // Message is already displayed locally
+          }
+        });
+
+        // Add a timeout to check if message was received by GunDB
+        setTimeout(() => {
+          console.log("🔍 Checking if message was received by GunDB...");
+          chatRef.get(messageId).once((receivedData) => {
+            if (receivedData) {
+              console.log("✅ Message confirmed in GunDB:", receivedData);
+            } else {
+              console.warn("⚠️ Message not found in GunDB after timeout");
+            }
+          });
+        }, 2000);
+      } catch (error) {
+        console.error("❌ Exception while sending message:", error);
+        addLog("ERROR: Exception while sending message", "error");
+        // Message is already displayed locally, so user sees it
+      }
     }
   });
 
@@ -4159,6 +4296,31 @@ function startTaskSynchronization() {
           const localTask = activeTasks[index];
           const isOwnUpdate =
             currentUser && task.assignedTo === currentUser.alias;
+
+          // Check if local task is assigned to us but sync data shows unassigned (stale data)
+          const isLocalAssignment =
+            currentUser && localTask.assignedTo === currentUser.alias;
+          const isSyncUnassigned = !task.assignedTo || task.assignedTo === null;
+
+          // Use timestamp-based conflict resolution if available
+          const localAssignedAt = localTask.assignedAt || 0;
+          const syncAssignedAt = task.assignedAt || 0;
+
+          // Don't overwrite our local assignment with stale unassigned data
+          // Also check if our local assignment is more recent
+          if (
+            isLocalAssignment &&
+            (isSyncUnassigned || localAssignedAt > syncAssignedAt)
+          ) {
+            console.log(
+              `🛡️ Protecting local assignment for task: ${task.name} (local: ${
+                localTask.assignedTo
+              } at ${new Date(localAssignedAt).toLocaleTimeString()}, sync: ${
+                task.assignedTo
+              } at ${new Date(syncAssignedAt).toLocaleTimeString()})`
+            );
+            return;
+          }
 
           // Only update if it's not our own recent update or if it's a significant change
           if (!isOwnUpdate || task.assignedTo !== localTask.assignedTo) {
@@ -4891,6 +5053,7 @@ function acceptTask(taskId) {
   task.executionStartTime = Date.now();
   task.executionEndTime = Date.now() + executionTime;
   task.assignedTo = currentUser.alias;
+  task.assignedAt = Date.now(); // Add timestamp for sync conflict resolution
 
   // Update the task in the local array first
   const taskIndex = activeTasks.findIndex((t) => t.id === taskId);
@@ -4903,9 +5066,11 @@ function acceptTask(taskId) {
     console.warn(`❌ Task not found in local array: ${taskId}`);
   }
 
-  // Then update in GunDB
-  taskRef.get(taskId).put(task);
-  console.log(`📡 Updated task in GunDB: ${task.name}`);
+  // Then update in GunDB with a small delay to ensure local state is stable
+  setTimeout(() => {
+    taskRef.get(taskId).put(task);
+    console.log(`📡 Updated task in GunDB: ${task.name}`);
+  }, 50);
 
   addLog(
     `Task "${task.name}" accepted by ${

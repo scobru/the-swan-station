@@ -108,6 +108,7 @@ body {
     box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
     filter: drop-shadow(0 0 10px rgba(0, 255, 0, 0.5));
     transition: all 0.3s ease;
+    margin-bottom: 5px;
   }
   
   .station-logo:hover {
@@ -595,7 +596,8 @@ body {
     right: 0;
     background-color: rgba(0, 0, 0, 0.8);
     padding: 10px;
-    max-height: 150px;
+    height: 300px;
+    max-height: 100px;
     overflow-y: auto;
     border-top: 1px solid #00ff00;
     transition: all 0.3s ease;
@@ -1772,26 +1774,57 @@ body {
   }
   
   .map-container {
-      position: relative;
-      height: 400px;
-      margin-bottom: 20px;
-      border: 2px solid #00ff00;
-      background: linear-gradient(135deg, #001100 0%, #000000 100%);
-      overflow: hidden;
-  }
+    position: relative;
+    height: 400px;
+    margin-bottom: 20px;
+    border: 2px solid #00ff00;
+    background: linear-gradient(135deg, #001100 0%, #000000 100%);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Custom scrollbar for map container */
+.map-container::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+.map-container::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid rgba(0, 255, 0, 0.3);
+}
+
+.map-container::-webkit-scrollbar-thumb {
+    background: rgba(0, 255, 0, 0.6);
+    border-radius: 6px;
+    border: 1px solid rgba(0, 255, 0, 0.8);
+}
+
+.map-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 255, 0, 0.8);
+}
+
+.map-container::-webkit-scrollbar-corner {
+    background: rgba(0, 0, 0, 0.8);
+}
   
   .operators-map {
-      width: 100%;
-      height: 100%;
-      position: relative;
-  }
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
   
   .world-map {
-      width: 100%;
-      height: 100%;
-      position: relative;
-      background: linear-gradient(135deg, #001100 0%, #000000 100%);
-  }
+    width: 120%;
+    height: 120%;
+    min-width: 800px;
+    min-height: 600px;
+    position: relative;
+    background: linear-gradient(135deg, #001100 0%, #000000 100%);
+}
   
   .map-region {
       position: absolute;
@@ -3659,6 +3692,27 @@ body {
           overflow: auto;
           -webkit-overflow-scrolling: touch;
           border: 1px solid rgba(0, 255, 0, 0.3);
+      }
+
+      /* Custom scrollbar for mobile map container */
+      .map-container::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+      }
+
+      .map-container::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.8);
+          border: 1px solid rgba(0, 255, 0, 0.3);
+      }
+
+      .map-container::-webkit-scrollbar-thumb {
+          background: rgba(0, 255, 0, 0.6);
+          border-radius: 4px;
+          border: 1px solid rgba(0, 255, 0, 0.8);
+      }
+
+      .map-container::-webkit-scrollbar-thumb:hover {
+          background: rgba(0, 255, 0, 0.8);
       }
   
       .operators-map {
