@@ -3797,6 +3797,9 @@ function showAboutSection() {
       <div class="rules-section">
         <h3>SHOGUN ECO ECOSYSTEM</h3>
         <p class="success"><strong>Swan Station is a flagship experiment of shogun-eco.xyz</strong>, designed to showcase the capabilities of decentralized technology in real-world applications.</p>
+        <p class="success">
+          <a href="https://shogun-eco.xyz" target="_blank" class="shogun-link">🌐 VISIT SHOGUN ECO ECOSYSTEM</a>
+        </p>
         <ul>
           <li class="success">Part of the larger shogun-eco.xyz decentralized ecosystem</li>
           <li class="info">Demonstrates practical applications of decentralized technology</li>
@@ -3837,9 +3840,15 @@ function showAboutSection() {
       </div>
       
       <div class="rules-section">
-        <h3>OPEN SOURCE</h3>
+        <h3>OPEN SOURCE & LINKS</h3>
         <p>This project is open source and available on GitHub. You can view the source code, contribute to development, or run your own instance of Swan Station.</p>
-        <p class="success"><a href="https://github.com/scobru/the-swan-station" target="_blank" class="github-link">📁 VIEW ON GITHUB</a></p>
+        <p class="success">
+          <a href="https://github.com/scobru/the-swan-station" target="_blank" class="github-link">📁 VIEW ON GITHUB</a>
+        </p>
+        <p class="success">
+          <a href="https://shogun-eco.xyz" target="_blank" class="shogun-link">🌐 VISIT SHOGUN ECO</a>
+        </p>
+        <p class="info">Explore the full shogun-eco.xyz ecosystem and discover more decentralized applications and experiments.</p>
       </div>
       
       <div class="button" id="closeAbout">CLOSE</div>
