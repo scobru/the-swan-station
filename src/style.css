@@ -2038,6 +2038,14 @@ body {
       padding: 20px;
       font-style: italic;
   }
+
+  /* Mobile no operators state */
+  @media screen and (max-width: 768px) {
+      .operators-map-modal .no-operators {
+          padding: 15px 10px;
+          margin-bottom: 60px; /* Ensure space for close button */
+      }
+  }
   
   /* Operator Info Modal */
   .operator-info-modal {
@@ -3647,6 +3655,7 @@ body {
           overflow: hidden;
           display: flex;
           flex-direction: column;
+          position: relative;
       }
   
       .operators-map-modal h2 {
@@ -3757,6 +3766,7 @@ body {
       .operators-list {
           flex-shrink: 0;
           margin-top: 15px;
+          margin-bottom: 60px; /* Ensure space for close button */
       }
   
       .operators-list h3 {
@@ -3765,7 +3775,7 @@ body {
       }
   
       .operators-list-content {
-          max-height: 150px;
+          max-height: 120px; /* Reduced to ensure close button visibility */
           overflow-y: auto;
           -webkit-overflow-scrolling: touch;
       }
@@ -3799,6 +3809,30 @@ body {
           height: 60px;
           flex-shrink: 0;
       }
+
+      /* Ensure close button is always visible on mobile */
+      .operators-map-modal .button {
+          position: fixed;
+          bottom: 20px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 1000;
+          background: rgba(0, 0, 0, 0.9);
+          border: 2px solid #00ff00;
+          color: #00ff00;
+          padding: 12px 24px;
+          font-family: 'VT323', monospace;
+          font-size: 1.1em;
+          cursor: pointer;
+          min-width: 120px;
+          text-align: center;
+          box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+      }
+
+      .operators-map-modal .button:hover {
+          background: rgba(0, 255, 0, 0.1);
+          box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
+      }
   }
 
 /* Loading indicator styles */
@@ -3813,6 +3847,16 @@ body {
   border: 1px solid rgba(0, 255, 0, 0.2);
   border-radius: 8px;
   margin: 20px 0;
+}
+
+/* Mobile loading state for operators map */
+@media screen and (max-width: 768px) {
+  .operators-map-modal .loading-tasks {
+    padding: 20px 10px;
+    margin: 10px 0;
+    max-height: 200px;
+    overflow: hidden;
+  }
 }
 
 .loading-spinner {
