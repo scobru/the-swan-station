@@ -78,6 +78,14 @@ function cleanup() {
     }
   });
 
+  // Also cleanup click sounds
+  [click1, click2].forEach((audio) => {
+    if (audio?.pause) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  });
+
   cleanupRegistry.intervals.clear();
   cleanupRegistry.timeouts.clear();
   cleanupRegistry.listeners.clear();
@@ -338,13 +346,21 @@ async function initializeShogun() {
     // Add error boundary for unhandled errors
     window.addEventListener("error", (event) => {
       console.error("Unhandled error:", event.error);
+      performanceMonitor.logError(event.error);
       addLog(`CRITICAL ERROR: ${event.error.message}`, "error");
+
+      // Prevent app crash by showing error state
+      document.title = "SWAN STATION - ERROR";
+      updateConnectionStatus("SYSTEM ERROR", "error");
     });
 
     window.addEventListener("unhandledrejection", (event) => {
       console.error("Unhandled promise rejection:", event.reason);
       performanceMonitor.logError(new Error(event.reason));
       addLog(`CRITICAL ERROR: Promise rejected - ${event.reason}`, "error");
+
+      // Prevent app crash
+      event.preventDefault();
     });
 
     // Start performance monitoring
@@ -486,10 +502,16 @@ async function initializeShogun() {
     }
   } catch (error) {
     console.error("Failed to initialize Shogun Core:", error);
+    performanceMonitor.logError(error);
     document.title = "SWAN STATION - CONNECTION ERROR";
     updateConnectionStatus("CONNECTION ERROR", "error");
     addLog("CRITICAL: Connection to station network failed", "error");
-    showAuthPrompt();
+
+    // Retry initialization after 5 seconds
+    setTimeout(() => {
+      addLog("Attempting to reconnect to station network...", "info");
+      initializeApp();
+    }, 5000);
   }
 }
 
@@ -510,12 +532,25 @@ async function getUserAlias(userPub) {
 const siren = new Audio("assets/siren.mp3");
 const reset = new Audio("assets/reset.mp3");
 const tick = new Audio("assets/tick.mp3");
+const task = new Audio("assets/task.mp3");
+const click1 = new Audio("assets/click.mp3");
+const click2 = new Audio("assets/click2.mp3");
 
-[siren, reset, tick].forEach((audio) => {
+// Make task audio globally available
+window.task = task;
+
+[siren, reset, tick, task, click1, click2].forEach((audio) => {
   cleanupRegistry.audioElements.add(audio);
-  audio.addEventListener("error", (e) =>
-    console.warn("Audio loading failed:", e.target.src)
-  );
+  audio.addEventListener("error", (e) => {
+    console.warn("Audio loading failed:", e.target.src);
+    addLog(`WARNING: Audio file failed to load: ${e.target.src}`, "warning");
+  });
+  audio.addEventListener("loadstart", () => {
+    console.log("Audio loading started:", audio.src);
+  });
+  audio.addEventListener("canplaythrough", () => {
+    console.log("Audio loaded successfully:", audio.src);
+  });
 });
 
 const buttonSounds = Array.from({ length: 8 }, (_, i) => {
@@ -1249,6 +1284,26 @@ function typeSound() {
   }
 }
 
+// Click sound function with random selection between click1 and click2
+function playClickSound() {
+  try {
+    // Randomly select between click1 and click2
+    const clickSounds = [click1, click2];
+    const randomClick =
+      clickSounds[Math.floor(Math.random() * clickSounds.length)];
+
+    if (randomClick?.readyState >= 2) {
+      randomClick.volume = 0.4;
+      randomClick.currentTime = 0;
+      randomClick
+        .play()
+        .catch((error) => console.warn("Failed to play click sound:", error));
+    }
+  } catch (error) {
+    console.warn("Error in playClickSound function:", error);
+  }
+}
+
 // Function to update timer
 function updateTimer(newValue, reason = "") {
   console.log("⏰ updateTimer called:", {
@@ -1273,6 +1328,12 @@ function updateTimer(newValue, reason = "") {
     });
   } else {
     console.error("❌ timerRef is null - cannot update timer");
+    addLog("ERROR: Timer system not initialized", "error");
+    // Attempt to reinitialize timer reference
+    if (gun && !timerRef) {
+      timerRef = gun.get("timer");
+      addLog("Attempting to reinitialize timer reference...", "info");
+    }
   }
 }
 
@@ -2163,6 +2224,7 @@ function updateStatsUI(newStats) {
                 <button id="chatBtn" class="stats-button">[ CHAT ]</button>
                 <button id="networkBtn" class="stats-button">[ NETWORK ]</button>
                 <button id="mapBtn" class="stats-button">[ MAP ]</button>
+                <button id="activeOperatorsBtn" class="stats-button">[ ACTIVE OPERATORS ]</button>
             </div>
         </div>
     `;
@@ -2176,6 +2238,7 @@ function updateStatsUI(newStats) {
   const chatBtn = document.getElementById("chatBtn");
   const networkBtn = document.getElementById("networkBtn");
   const mapBtn = document.getElementById("mapBtn");
+  const activeOperatorsBtn = document.getElementById("activeOperatorsBtn");
 
   if (profileBtn) profileBtn.onclick = showProfile;
   if (globalStatsBtn) globalStatsBtn.onclick = showGlobalStats;
@@ -2185,6 +2248,7 @@ function updateStatsUI(newStats) {
   if (chatBtn) chatBtn.onclick = showChat;
   if (networkBtn) networkBtn.onclick = showNetworkAnalytics;
   if (mapBtn) mapBtn.onclick = showOperatorsMap;
+  if (activeOperatorsBtn) activeOperatorsBtn.onclick = showActiveOperators;
 
   // Debug: Check if all buttons were found (only log once)
   if (!window.buttonsInitialized) {
@@ -2197,6 +2261,7 @@ function updateStatsUI(newStats) {
       chatBtn: !!chatBtn,
       networkBtn: !!networkBtn,
       mapBtn: !!mapBtn,
+      activeOperatorsBtn: !!activeOperatorsBtn,
     });
 
     // Test if buttons are clickable
@@ -2464,13 +2529,6 @@ function showOperatorsMap() {
         <div id="operatorsMap" class="operators-map"></div>
       </div>
       
-      <div class="operators-list">
-        <h3>ACTIVE OPERATORS</h3>
-        <div id="operatorsList" class="operators-list-content">
-          Loading...
-        </div>
-      </div>
-      
       <div class="button" id="closeMap">CLOSE</div>
     </div>
   `;
@@ -2492,6 +2550,79 @@ function showOperatorsMap() {
   };
 
   overlay.querySelector("#closeMap").onclick = () => overlay.remove();
+
+  // Add touch-friendly close functionality
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
+}
+
+// Show Active Operators Function
+function showActiveOperators() {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="active-operators-modal">
+      <h2>&gt; ACTIVE OPERATORS</h2>
+      
+      <div class="operators-header">
+        <div class="operators-info">
+          <span id="activeOperatorsCount">Loading operators...</span>
+        </div>
+        <div class="operators-controls">
+          <button id="refreshOperatorsBtn" class="terminal-button" style="font-size: 0.8em; padding: 5px 10px;">REFRESH</button>
+          <button id="sortOperatorsBtn" class="terminal-button" style="font-size: 0.8em; padding: 5px 10px;">SORT BY STATUS</button>
+        </div>
+      </div>
+      
+      <div class="operators-container">
+        <div class="operators-filters">
+          <button class="filter-btn active" data-filter="all">ALL OPERATORS</button>
+          <button class="filter-btn" data-filter="online">ONLINE ONLY</button>
+          <button class="filter-btn" data-filter="offline">OFFLINE ONLY</button>
+        </div>
+        
+        <div class="operators-list-container">
+          <div id="activeOperatorsList" class="active-operators-list">
+            Loading operators...
+          </div>
+        </div>
+      </div>
+      
+      <div class="button" id="closeActiveOperators">CLOSE</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Initialize the operators list
+  initializeActiveOperatorsList();
+
+  // Add refresh button handler
+  overlay.querySelector("#refreshOperatorsBtn").onclick = () => {
+    initializeActiveOperatorsList();
+    addLog("Active operators refreshed", "info");
+  };
+
+  // Add sort button handler
+  overlay.querySelector("#sortOperatorsBtn").onclick = () => {
+    toggleOperatorSort();
+    addLog("Operator sort order changed", "info");
+  };
+
+  // Add filter handlers
+  const filterBtns = overlay.querySelectorAll(".filter-btn");
+  filterBtns.forEach((btn) => {
+    btn.onclick = () => {
+      filterBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      filterOperators(btn.dataset.filter);
+    };
+  });
+
+  overlay.querySelector("#closeActiveOperators").onclick = () =>
+    overlay.remove();
 
   // Add touch-friendly close functionality
   overlay.addEventListener("click", (e) => {
@@ -2613,6 +2744,16 @@ function showTaskSystem() {
 
       taskRef.get(taskId).put(newTask);
       activeTasks.push(newTask);
+
+      // Play task notification sound for forced task
+      if (window.task && window.task.readyState >= 2) {
+        window.task.volume = 0.4;
+        window.task.currentTime = 0;
+        window.task.play().catch((error) => {
+          console.warn("Failed to play task notification sound:", error);
+        });
+      }
+
       updateTaskDisplay();
       updateTaskSystemInfo();
 
@@ -2803,6 +2944,15 @@ function showTaskNotification(task) {
     return;
   }
 
+  // Play task notification sound
+  if (window.task && window.task.readyState >= 2) {
+    window.task.volume = 0.4;
+    window.task.currentTime = 0;
+    window.task.play().catch((error) => {
+      console.warn("Failed to play task notification sound:", error);
+    });
+  }
+
   // Create notification element
   const notification = document.createElement("div");
 
@@ -2860,10 +3010,9 @@ function showTaskNotification(task) {
 // Initialize Operators Map
 function initializeOperatorsMap() {
   const mapContainer = document.getElementById("operatorsMap");
-  const operatorsList = document.getElementById("operatorsList");
   const operatorCount = document.getElementById("mapOperatorCount");
 
-  if (!mapContainer || !operatorsList || !operatorCount) return;
+  if (!mapContainer || !operatorCount) return;
 
   // Create a simple but effective map using CSS and HTML
   const mapHTML = `
@@ -2935,10 +3084,9 @@ function initializeOperatorsMap() {
             operators.push(operator);
             processedOperators++;
 
-            // Update map and list when we have processed all operators
+            // Update map when we have processed all operators
             if (processedOperators >= totalOperators) {
               updateMapWithOperators(operators);
-              updateOperatorsList(operators);
               operatorCount.textContent = `${operators.length} OPERATORS FOUND`;
             }
           });
@@ -2950,7 +3098,6 @@ function initializeOperatorsMap() {
   setTimeout(() => {
     if (operators.length === 0) {
       updateMapWithOperators([]);
-      updateOperatorsList([]);
       operatorCount.textContent = "0 OPERATORS FOUND";
     }
   }, 3000);
@@ -3143,6 +3290,192 @@ function updateOperatorsList(operators) {
     .join("");
 
   operatorsList.innerHTML = listHTML;
+}
+
+// Initialize Active Operators List
+function initializeActiveOperatorsList() {
+  const operatorsList = document.getElementById("activeOperatorsList");
+  const operatorsCount = document.getElementById("activeOperatorsCount");
+
+  if (!operatorsList || !operatorsCount) return;
+
+  // Collect operators data
+  const operators = [];
+  const now = Date.now();
+  let totalOperators = 0;
+  let processedOperators = 0;
+
+  // First, count total operators
+  operatorsRef.map().once((data, key) => {
+    if (data && data.name && data.lastSeen) {
+      totalOperators++;
+    }
+  });
+
+  // Then collect operator data with locations
+  setTimeout(() => {
+    operatorsRef.map().once((data, key) => {
+      if (data && data.name && data.lastSeen) {
+        const timeSinceLastSeen = now - data.lastSeen;
+        const isOnline = timeSinceLastSeen < 120000; // 2 minutes
+
+        // Get location from user profile
+        gun
+          .get("users")
+          .get(data.pub)
+          .get("profile")
+          .once((userProfile) => {
+            let location = "Unknown";
+
+            if (userProfile && userProfile.location) {
+              location = userProfile.location;
+            }
+
+            const operator = {
+              name: data.name,
+              pub: data.pub,
+              lastSeen: data.lastSeen,
+              isOnline: isOnline,
+              location: location,
+            };
+
+            operators.push(operator);
+            processedOperators++;
+
+            // Update list when we have processed all operators
+            if (processedOperators >= totalOperators) {
+              currentOperatorsData = operators; // Store the data globally
+              updateActiveOperatorsList(operators);
+            }
+          });
+      }
+    });
+  }, 500);
+
+  // Fallback: if no operators are found after 3 seconds, show empty state
+  setTimeout(() => {
+    if (operators.length === 0) {
+      currentOperatorsData = []; // Store empty data
+      updateActiveOperatorsList([]);
+    }
+  }, 3000);
+}
+
+// Update Active Operators List
+function updateActiveOperatorsList(operators) {
+  const operatorsList = document.getElementById("activeOperatorsList");
+  if (!operatorsList) return;
+
+  if (operators.length === 0) {
+    operatorsList.innerHTML =
+      '<div class="no-operators">No operators found</div>';
+    return;
+  }
+
+  // Apply filter based on currentOperatorFilter
+  let filteredOperators = operators;
+  if (currentOperatorFilter === "online") {
+    filteredOperators = operators.filter((operator) => operator.isOnline);
+    console.log(
+      `Filtered to online operators: ${filteredOperators.length}/${operators.length}`
+    );
+  } else if (currentOperatorFilter === "offline") {
+    filteredOperators = operators.filter((operator) => !operator.isOnline);
+    console.log(
+      `Filtered to offline operators: ${filteredOperators.length}/${operators.length}`
+    );
+  } else {
+    console.log(`Showing all operators: ${operators.length}`);
+  }
+  // "all" filter shows all operators
+
+  if (filteredOperators.length === 0) {
+    operatorsList.innerHTML =
+      '<div class="no-operators">No operators match the current filter</div>';
+    return;
+  }
+
+  // Sort operators based on current sort order
+  let sortedOperators;
+  if (operatorSortOrder === "name") {
+    sortedOperators = filteredOperators.sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  } else {
+    // Default sort: online first, then by last seen
+    sortedOperators = filteredOperators.sort((a, b) => {
+      if (a.isOnline && !b.isOnline) return -1;
+      if (!a.isOnline && b.isOnline) return 1;
+      return b.lastSeen - a.lastSeen;
+    });
+  }
+
+  const listHTML = sortedOperators
+    .map((operator) => {
+      const avatar = generateAvatar(operator.pub);
+      return `
+    <div class="operator-list-item ${operator.isOnline ? "online" : "offline"}">
+      <div class="operator-avatar">
+        <img src="${avatar}" alt="${operator.name}" />
+      </div>
+      <div class="operator-status-dot"></div>
+      <div class="operator-info">
+        <div class="operator-name">${operator.name}</div>
+        <div class="operator-location">${
+          operator.location || "Unknown Location"
+        }</div>
+        <div class="operator-last-seen">Last seen: ${formatLastSeen(
+          operator.lastSeen
+        )}</div>
+        <div class="operator-status">${
+          operator.isOnline ? "ONLINE" : "OFFLINE"
+        }</div>
+      </div>
+    </div>
+  `;
+    })
+    .join("");
+
+  operatorsList.innerHTML = listHTML;
+
+  // Update the operators count to show filtered count
+  const operatorsCount = document.getElementById("activeOperatorsCount");
+  if (operatorsCount) {
+    const totalCount = currentOperatorsData.length;
+    const filteredCount = sortedOperators.length;
+    if (currentOperatorFilter === "all") {
+      operatorsCount.textContent = `${totalCount} OPERATORS FOUND`;
+    } else {
+      operatorsCount.textContent = `${filteredCount}/${totalCount} OPERATORS (${currentOperatorFilter.toUpperCase()})`;
+    }
+  }
+}
+
+// Global variables for operator filtering and sorting
+let currentOperatorFilter = "all";
+let operatorSortOrder = "status"; // "status" or "name"
+let currentOperatorsData = []; // Store current operators data for filtering
+
+// Filter operators
+function filterOperators(filter) {
+  currentOperatorFilter = filter;
+  console.log(
+    `Filtering operators: ${filter}, Total operators: ${currentOperatorsData.length}`
+  );
+  // Re-apply filter to existing data
+  updateActiveOperatorsList(currentOperatorsData);
+}
+
+// Toggle operator sort order
+function toggleOperatorSort() {
+  operatorSortOrder = operatorSortOrder === "status" ? "name" : "status";
+  const sortBtn = document.getElementById("sortOperatorsBtn");
+  if (sortBtn) {
+    sortBtn.textContent =
+      operatorSortOrder === "status" ? "SORT BY NAME" : "SORT BY STATUS";
+  }
+  // Re-apply sort to existing data
+  updateActiveOperatorsList(currentOperatorsData);
 }
 
 // Show operator info modal
@@ -3625,6 +3958,18 @@ function initializeChat() {
   if (!chatRef) {
     console.error("❌ chatRef not initialized. Chat system cannot function.");
     addLog("ERROR: Chat system not initialized", "error");
+
+    // Attempt to reinitialize chat reference
+    if (gun && !chatRef) {
+      chatRef = gun.get("chat");
+      addLog("Attempting to reinitialize chat reference...", "info");
+      // Retry initialization after a short delay
+      setTimeout(() => {
+        if (chatRef) {
+          initializeChat();
+        }
+      }, 1000);
+    }
     return;
   }
 
@@ -4129,11 +4474,30 @@ function showAboutSection() {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     // Pause all audio when page is hidden
-    [siren, reset, tick, ...buttonSounds].forEach((audio) => {
+    [siren, reset, tick, click1, click2, ...buttonSounds].forEach((audio) => {
       if (audio && typeof audio.pause === "function") {
         audio.pause();
       }
     });
+  }
+});
+
+// Global click sound listener for all buttons
+document.addEventListener("click", (event) => {
+  // Check if the clicked element is a button or has a button-like role
+  const target = event.target;
+  const isButton =
+    target.tagName === "BUTTON" ||
+    target.classList.contains("button") ||
+    target.classList.contains("task-btn") ||
+    target.classList.contains("stats-button") ||
+    target.classList.contains("terminal-button") ||
+    target.getAttribute("role") === "button" ||
+    target.onclick !== null ||
+    target.onclick !== undefined;
+
+  if (isButton) {
+    playClickSound();
   }
 });
 
@@ -4142,6 +4506,11 @@ window.addEventListener("beforeunload", () => {
   cleanup();
   console.log("🧹 Page unload cleanup completed");
 });
+
+// Make click sounds globally available for debugging
+window.click1 = click1;
+window.click2 = click2;
+window.playClickSound = playClickSound;
 
 // Start the application
 initializeShogun();
@@ -4490,6 +4859,16 @@ function startTaskSynchronization() {
             `NEW TASK DETECTED: ${validTask.name} (${validTask.type})`,
             "info"
           );
+
+          // Play task notification sound for detected task
+          if (window.task && window.task.readyState >= 2) {
+            window.task.volume = 0.4;
+            window.task.currentTime = 0;
+            window.task.play().catch((error) => {
+              console.warn("Failed to play task notification sound:", error);
+            });
+          }
+
           updateTaskDisplay();
         } else {
           console.log(
@@ -4568,7 +4947,16 @@ function startTaskSynchronization() {
             "success"
           );
 
-          // Show notification for task completion by others (without sound to avoid double play)
+          // Play task completion sound for task completed by another operator
+          if (window.task && window.task.readyState >= 2) {
+            window.task.volume = 0.4;
+            window.task.currentTime = 0;
+            window.task.play().catch((error) => {
+              console.warn("Failed to play task completion sound:", error);
+            });
+          }
+
+          // Show notification for task completion by others
           showTaskNotification({
             name: completedTask.name,
             type: completedTask.type,
@@ -4658,7 +5046,14 @@ function startTaskGeneration() {
     // Validate task data
     if (!task || !task.name) {
       console.error("Invalid task data:", task);
+      addLog("ERROR: Invalid task data generated", "error");
       return;
+    }
+
+    // Additional validation
+    if (!task.difficulty || !task.timeLimit) {
+      console.warn("Task missing required properties:", task);
+      addLog("WARNING: Task missing required properties", "warning");
     }
 
     const taskId = crypto.randomUUID();
@@ -4686,6 +5081,15 @@ function startTaskGeneration() {
       // Add to local active tasks
       activeTasks.push(newTask);
       addLog(`NEW TASK: ${task.name} (${category})`, "warning");
+
+      // Play task notification sound for new task
+      if (window.task && window.task.readyState >= 2) {
+        window.task.volume = 0.4;
+        window.task.currentTime = 0;
+        window.task.play().catch((error) => {
+          console.warn("Failed to play task notification sound:", error);
+        });
+      }
     } else {
       console.warn(`Task with ID ${taskId} already exists, skipping duplicate`);
       return;
@@ -4846,6 +5250,16 @@ function triggerRandomEvent(event) {
     const existingTask = activeTasks.find((t) => t.id === taskId);
     if (!existingTask) {
       activeTasks.push(newTask);
+
+      // Play task notification sound for emergency task
+      if (window.task && window.task.readyState >= 2) {
+        window.task.volume = 0.4;
+        window.task.currentTime = 0;
+        window.task.play().catch((error) => {
+          console.warn("Failed to play task notification sound:", error);
+        });
+      }
+
       updateTaskDisplay();
     } else {
       console.warn(
@@ -5351,6 +5765,15 @@ function completeTask(taskId) {
     task.completed = true;
 
     addLog(`Task "${task.name}" completed successfully!`, "success");
+
+    // Play task completion sound
+    if (window.task && window.task.readyState >= 2) {
+      window.task.volume = 0.4;
+      window.task.currentTime = 0;
+      window.task.play().catch((error) => {
+        console.warn("Failed to play task completion sound:", error);
+      });
+    }
 
     // Award points based on task difficulty and type
     const points =
