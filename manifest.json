@@ -1,0 +1,13 @@
+// write manifest.json for the-swan-station
+{
+  "name": "The Swan Station",
+  "short_name": "Swan",
+  "description": "The Swan Station is a station for the Swan project.",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "512x512",
+      "type": "image/x-icon"
+    }
+  ]
+}

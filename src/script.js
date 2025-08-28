@@ -375,13 +375,14 @@ async function initializeShogun() {
     }, 300000); // Every 5 minutes
 
     // Initialize Shogun Core
-    shogun = await window.initShogun({
+    shogun = await window.SHOGUN_CORE({
       peers: [
         "https://relay.shogun-eco.xyz/gun",
         "https://peer.wallie.io/gun",
         "https://gun-manhattan.herokuapp.com/gun",
       ],
       localStorage: true,
+      radisk: true,
       scope: "shogun/swan-station",
       web3: { enabled: false },
       webauthn: { enabled: false },
