@@ -44,11 +44,20 @@
       color: #00ff00;
       text-align: center;
       margin: 20px 0;
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-      position: relative !important;
-      z-index: 100 !important;
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+    }
+
+    .prompt {
+      position: fixed;
+      top: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      color: #00ff00;
     }
   </style>
 
@@ -73,17 +82,18 @@
     <div class="rules-toggle">
       <button id="aboutBtn" class="rules-button">[ ABOUT ]</button>
       <button id="rulesBtn" class="rules-button">[ STATION RULES ]</button>
+      <button id="menuToggleBtn" class="rules-button">[ TIMER ]</button>
     </div>
+  </div>
+
+  <!-- Timer and Input (always visible when menu is OFF) -->
+  <div id="bigTimer" class="big-timer">108</div>
+  <div class="prompt">
+    >: <input type="text" class="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
   </div>
 
   <div class="container">
     <h1><span>&gt;</span>:</h1>
-    <div id="bigTimer" class="big-timer"
-      style="display: block !important; visibility: visible !important; opacity: 1 !important; position: relative !important; z-index: 100 !important; font-size: 48px !important; color: #00ff00 !important; text-align: center !important; margin: 20px 0 !important;">
-      108</div>
-    <div class="prompt">
-      >: <input type="text" class="input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-    </div>
   </div>
 
   <div class="log-container" id="logContainer"></div>

@@ -16,6 +16,7 @@ const cleanupRegistry = {
   listeners: new Set(),
   timeouts: new Set(),
   audioElements: new Set(),
+  profileListeners: new Set(),
 };
 
 // Performance monitoring
@@ -90,6 +91,7 @@ function cleanup() {
   cleanupRegistry.timeouts.clear();
   cleanupRegistry.listeners.clear();
   cleanupRegistry.audioElements.clear();
+  cleanupRegistry.profileListeners.clear();
 
   console.log("🧹 Cleanup completed");
 }
@@ -511,7 +513,7 @@ async function initializeShogun() {
     // Retry initialization after 5 seconds
     setTimeout(() => {
       addLog("Attempting to reconnect to station network...", "info");
-      initializeApp();
+      initializeShogun();
     }, 5000);
   }
 }
@@ -579,39 +581,39 @@ let stats = { failures: 0, worlds: 0, resets: 0 };
 // Timer is now fetched from GunDB, not hardcoded.
 document.title = "SYNCING...";
 
-// Enhanced Leveling System
-// Updated to reflect new game mechanics and provide better progression
+// BALANCED LEVELING SYSTEM - More accessible progression
+// Updated to provide better early-game experience and smoother progression
 const levels = {
-  1: 5, // Starting level
-  2: 25, // Easier early progression
-  3: 60, // More accessible
-  4: 120, // Balanced progression
-  5: 200, // Mid-game entry
-  6: 300, // Challenge begins
-  7: 450, // Advanced play
-  8: 650, // Expert level
-  9: 900, // Master level
-  10: 1200, // Elite level
-  11: 1550, // Legendary
-  12: 1950, // Mythic
-  13: 2400, // Transcendent
-  14: 2900, // Divine
-  15: 3450, // Immortal
-  16: 4050, // Eternal
-  17: 4700, // Cosmic
-  18: 5400, // Universal
-  19: 6150, // Multiversal
-  20: 6950, // Omniversal
-  21: 7800, // Absolute
-  22: 8700, // Infinite
-  23: 9650, // Ultimate
-  24: 10650, // Supreme
-  25: 11700, // Transcendent Master
-  26: 12800, // Divine Master
-  27: 14000, // Immortal Master
-  28: 15300, // Eternal Master
-  29: 16700, // Cosmic Master
-  30: 18200, // Universal Master
+  1: 0, // Starting level (no points required)
+  2: 15, // Very accessible early progression
+  3: 35, // Easy to reach
+  4: 60, // Smooth progression
+  5: 90, // Early game milestone
+  6: 130, // Challenge begins
+  7: 180, // Mid-game entry
+  8: 240, // Advanced play
+  9: 310, // Expert level
+  10: 390, // Master level
+  11: 480, // Elite level
+  12: 580, // Legendary
+  13: 690, // Mythic
+  14: 810, // Transcendent
+  15: 940, // Divine
+  16: 1080, // Immortal
+  17: 1230, // Eternal
+  18: 1390, // Cosmic
+  19: 1560, // Universal
+  20: 1740, // Multiversal
+  21: 1930, // Omniversal
+  22: 2130, // Absolute
+  23: 2340, // Infinite
+  24: 2560, // Ultimate
+  25: 2790, // Supreme
+  26: 3030, // Transcendent Master
+  27: 3280, // Divine Master
+  28: 3540, // Immortal Master
+  29: 3810, // Eternal Master
+  30: 4090, // Cosmic Master
 };
 
 function getLevelFromPoints(points) {
@@ -772,9 +774,7 @@ function startApp(alias) {
   });
 
   // Listen for profile updates with timeout protection (only if not already set up)
-  // Temporarily disable profile listener to prevent excessive calls
-  if (!window.profileListenerSet && false) {
-    // Disabled temporarily
+  if (!window.profileListenerSet) {
     const profileListenerTimeout = setTimeout(() => {
       console.warn("⚠️ Profile listener timeout - removing listener");
       user.get("profile").off(); // Remove the listener if it times out
@@ -832,6 +832,16 @@ function startApp(alias) {
   // Initial profile update
   window.updateUserProfile();
 
+  // Setup menu toggle button in header
+  const menuToggleBtn = document.getElementById("menuToggleBtn");
+  if (menuToggleBtn) {
+    menuToggleBtn.onclick = () => {
+      console.log("🔘 Header menu button clicked");
+      toggleMenu();
+    };
+    console.log("✅ Header menu button setup complete");
+  }
+
   // Load cooldowns from GunDB
   loadCooldownsFromGunDB();
   loadCalibrationFromGunDB();
@@ -847,23 +857,59 @@ function startApp(alias) {
   const headerSection = document.querySelector(".header-section");
   const statsContainer = document.getElementById("statsContainer");
 
+  // Initially hide all interface elements (menu OFF state)
   if (container) {
-    container.style.display = "flex";
-    container.classList.add("centered");
+    container.style.display = "none";
+    container.classList.remove("centered");
+  }
+  if (headerSection) {
+    headerSection.style.display = "none";
+  }
+  if (statsContainer) {
+    statsContainer.style.display = "none";
+  }
 
-    // Hide log container when in timer mode
-    const logContainer = document.querySelector(".log-container");
-    if (logContainer) {
-      logContainer.style.display = "none";
-    }
+  // Hide log container when in timer mode
+  const logContainer = document.querySelector(".log-container");
+  if (logContainer) {
+    logContainer.style.display = "none";
+  }
 
-    // Hide input when timer is above 4
-    const input = document.querySelector(".input");
-    const prompt = document.querySelector(".prompt");
-    if (input && prompt) {
-      input.style.display = "none";
-      prompt.style.display = "none";
-    }
+  // Show timer and input box initially (menu OFF state)
+  const bigTimer = document.getElementById("bigTimer");
+  const input = document.querySelector(".input");
+  const prompt = document.querySelector(".prompt");
+
+  if (bigTimer) {
+    bigTimer.style.display = "block";
+    bigTimer.style.position = "fixed";
+    bigTimer.style.top = "20px";
+    bigTimer.style.left = "50%";
+    bigTimer.style.transform = "translateX(-50%)";
+    bigTimer.style.zIndex = "1000";
+    bigTimer.style.fontSize = "48px";
+    bigTimer.style.color = "#00ff00";
+    bigTimer.style.textAlign = "center";
+    bigTimer.style.margin = "20px 0";
+    bigTimer.style.background = "transparent";
+    bigTimer.style.border = "none";
+    bigTimer.style.padding = "0";
+    bigTimer.style.boxShadow = "none";
+  }
+
+  if (input && prompt) {
+    input.style.display = "block";
+    prompt.style.display = "block";
+    prompt.style.position = "fixed";
+    prompt.style.top = "100px";
+    prompt.style.left = "50%";
+    prompt.style.transform = "translateX(-50%)";
+    prompt.style.zIndex = "1000";
+    prompt.style.color = "#00ff00";
+    prompt.style.opacity = "1";
+    prompt.style.background = "transparent";
+    prompt.style.border = "none";
+    prompt.style.padding = "0";
   }
 
   if (headerSection) {
@@ -876,6 +922,12 @@ function startApp(alias) {
 
   // Add a small menu button to access functions
   addMenuButton();
+
+  // Debug: Log initial state
+  console.log("🚀 App started with menu OFF state");
+  console.log("📊 Timer element:", bigTimer);
+  console.log("📝 Prompt element:", prompt);
+  console.log("🎯 Container element:", container);
 
   focusInterval = safeSetInterval(() => {
     if (
@@ -913,52 +965,121 @@ function addMenuButton() {
   `;
 
   menuButton.onclick = () => {
+    console.log("🔘 Menu button clicked");
     toggleMenu();
   };
 
   document.body.appendChild(menuButton);
+  console.log("✅ Floating menu button added");
 }
 
 function toggleMenu() {
   const statsContainer = document.getElementById("statsContainer");
-  const headerSection = document.querySelector(".header-section");
   const logContainer = document.querySelector(".log-container");
+  const headerSection = document.querySelector(".header-section");
+  const container = document.querySelector(".container");
+  const bigTimer = document.getElementById("bigTimer");
+  const prompt = document.querySelector(".prompt");
 
-  if (statsContainer && headerSection) {
-    if (
-      statsContainer.style.display === "none" ||
-      !statsContainer.style.display
-    ) {
-      // Show menu
+  if (statsContainer) {
+    // Check if menu is currently OFF (showing only timer/input)
+    const isMenuOff =
+      statsContainer.style.display === "none" || !statsContainer.style.display;
+
+    if (isMenuOff) {
+      // MENU ATTIVATO (on): Show full interface, hide timer/input
+      console.log("🔄 Activating menu - showing full interface");
+
+      // Show all interface elements
       statsContainer.style.display = "flex";
-      headerSection.style.display = "block";
-
-      // Show log container in menu mode
       if (logContainer) {
         logContainer.style.display = "block";
       }
-
-      // Hide timer container
-      const container = document.querySelector(".container");
+      if (headerSection) {
+        headerSection.style.display = "block";
+      }
       if (container) {
-        container.style.display = "none";
-        container.classList.remove("centered");
+        container.style.display = "block";
+        container.classList.remove("centered"); // Remove centered class to show normal layout
+      }
+
+      // Show the header menu button when menu is on
+      const menuToggleBtn = document.getElementById("menuToggleBtn");
+      if (menuToggleBtn) {
+        menuToggleBtn.style.display = "block";
+      }
+
+      // Hide the floating menu button when menu is on to avoid confusion
+      const floatingMenuBtn = document.getElementById("menuButton");
+      if (floatingMenuBtn) {
+        floatingMenuBtn.style.display = "none";
+      }
+
+      // Hide timer and input box completely
+      if (bigTimer) {
+        bigTimer.style.display = "none";
+      }
+      if (prompt) {
+        prompt.style.display = "none";
       }
     } else {
-      // Hide menu
-      statsContainer.style.display = "none";
-      headerSection.style.display = "none";
+      // MENU DISATTIVATO (off): Show only timer and input box
+      console.log("🔄 Deactivating menu - showing timer only");
 
-      // Hide log container in timer mode
+      // Hide ALL interface elements completely
+      statsContainer.style.display = "none";
       if (logContainer) {
         logContainer.style.display = "none";
       }
-
-      // Show timer container
-      const container = document.querySelector(".container");
+      if (headerSection) {
+        headerSection.style.display = "none";
+      }
       if (container) {
-        container.style.display = "flex";
-        container.classList.add("centered");
+        container.style.display = "none";
+        container.classList.remove("centered"); // Remove centered class
+      }
+
+      // Hide the header menu button when menu is off
+      const menuToggleBtn = document.getElementById("menuToggleBtn");
+      if (menuToggleBtn) {
+        menuToggleBtn.style.display = "none";
+      }
+
+      // Ensure the floating menu button is visible
+      const floatingMenuBtn = document.getElementById("menuButton");
+      if (floatingMenuBtn) {
+        floatingMenuBtn.style.display = "block";
+      }
+
+      // Show only timer and input box at the top with proper styling
+      if (bigTimer) {
+        bigTimer.style.display = "block";
+        bigTimer.style.position = "fixed";
+        bigTimer.style.top = "20px";
+        bigTimer.style.left = "50%";
+        bigTimer.style.transform = "translateX(-50%)";
+        bigTimer.style.zIndex = "1000";
+        bigTimer.style.fontSize = "48px";
+        bigTimer.style.color = "#00ff00";
+        bigTimer.style.textAlign = "center";
+        bigTimer.style.margin = "20px 0";
+        bigTimer.style.background = "transparent";
+        bigTimer.style.border = "none";
+        bigTimer.style.padding = "0";
+        bigTimer.style.boxShadow = "none";
+      }
+      if (prompt) {
+        prompt.style.display = "block";
+        prompt.style.position = "fixed";
+        prompt.style.top = "100px";
+        prompt.style.left = "50%";
+        prompt.style.transform = "translateX(-50%)";
+        prompt.style.zIndex = "1000";
+        prompt.style.color = "#00ff00";
+        prompt.style.opacity = "1";
+        prompt.style.background = "transparent";
+        prompt.style.border = "none";
+        prompt.style.padding = "0";
       }
     }
   }
@@ -1587,6 +1708,11 @@ input.onkeydown = (event) => {
 
             // Update UI immediately
             if (stats) updateStatsUI(stats);
+
+            // Force profile UI update if profile modal is open
+            if (window.updateUserProfile) {
+              window.updateUserProfile();
+            }
           });
         });
 
@@ -1822,6 +1948,7 @@ function showProfile() {
                     <div class="profile-actions-secondary">
                         <button id="exportPair" class="terminal-button secondary-button">EXPORT PAIR</button>
                         <button id="refreshProfile" class="terminal-button secondary-button">🔄 REFRESH</button>
+                        <button id="refreshCalibration" class="terminal-button secondary-button">🔧 REFRESH CALIBRATION</button>
                     </div>
                 </div>
                 </div>
@@ -1832,8 +1959,8 @@ function showProfile() {
   document.body.appendChild(overlay);
 
   // Aggiorna le informazioni del profilo
-  const updateProfile = () => {
-    user.get("profile").on((profile) => {
+  window.updateProfile = () => {
+    user.get("profile").once((profile) => {
       if (profile) {
         const profileAlias = document.getElementById("profileAlias");
         const profileLevel = document.getElementById("profileLevel");
@@ -2272,6 +2399,14 @@ function showProfile() {
       window.updateUserProfile();
     }
     addLog("Profile refreshed", "info");
+  };
+
+  // Refresh calibration handler
+  document.getElementById("refreshCalibration").onclick = () => {
+    if (window.updateProfile) {
+      window.updateProfile();
+    }
+    addLog("Calibration data refreshed", "info");
   };
 
   // Chiudi il profilo
@@ -3727,83 +3862,126 @@ function saveCooldownsToGunDB() {
 // - Hash game performance affects challenge success
 // - Better point distribution across activities
 
-// Challenge types with updated mechanics
+// BALANCED GAME RULES - Updated for better gameplay experience
+//
+// BALANCE CHANGES SUMMARY:
+// =======================
+//
+// CHALLENGE SYSTEM:
+// - Increased success rates (55-65% vs 45-55%) for more rewarding gameplay
+// - Reduced reputation costs (3-6 vs 5-10) for more accessible challenges
+// - Reduced cooldowns (4-8 min vs 5-10 min) for more frequent activity
+// - Increased point rewards (12-20 vs 8-15) for better risk/reward balance
+//
+// SUCCESS FACTORS:
+// - Reduced level dominance (6% vs 8% per level) for fairer competition
+// - Reduced random factor (12% vs 15%) for more predictable outcomes
+// - Balanced bonuses for skill-based activities
+//
+// HASH GAME:
+// - Reduced base difficulty (3 vs 4 chars) for accessibility
+// - Increased attempts (120+20/level vs 100+15/level) for less frustration
+// - Increased rewards (75-150 vs 50-100) for better compensation
+// - Extended time bonus threshold (45s vs 30s) for achievable bonuses
+//
+// REPUTATION SYSTEM:
+// - Increased starting reputation (150 vs 100) for better early game
+// - Increased max reputation (1500 vs 1000) for longer progression
+// - Reduced penalties (8 vs 15) for less punishing failures
+// - Increased rewards (15 vs 10) for successful challenges
+//
+// COOLDOWNS:
+// - Reduced general cooldown (3 min vs 5 min) for more activity
+// - Reduced operator cooldown (2 min vs 3 min) for better targeting
+// - Reduced hash game cooldown (45s vs 60s) for faster gameplay
+//
+// POINT SYSTEM:
+// - Increased base points (2 vs 1) for better progression
+// - Increased bonuses across all activities for more rewarding gameplay
+// - Better balance between different point sources
+//
+// LEVELING:
+// - More accessible early levels (0-90 vs 5-200) for better onboarding
+// - Smoother progression curve throughout all levels
+// - Reduced point requirements for faster advancement
+//
+// Challenge types with balanced mechanics
 const challengeTypes = {
   POINT_STEAL: {
     name: "POINT STEAL",
     description:
       "Steal points from another operator (requires hash brute-force)",
-    successRate: 0.55, // 55% base success rate (reduced from 60%)
-    pointsAtRisk: 8, // Increased from 5 to 8 points
-    cooldown: 300000, // 5 minutes cooldown
-    hashGameRequired: true, // New: requires hash brute-force mini-game
-    reputationCost: 5, // New: costs reputation to attempt
+    successRate: 0.65, // Increased to 65% for better success rate
+    pointsAtRisk: 12, // Balanced risk/reward
+    cooldown: 240000, // Reduced to 4 minutes for more activity
+    hashGameRequired: true,
+    reputationCost: 3, // Reduced cost for more accessible gameplay
   },
 
   CHALLENGE: {
     name: "CHALLENGE",
     description: "Direct challenge for points (requires hash brute-force)",
-    successRate: 0.45, // 45% base success rate (reduced from 50%)
-    pointsAtRisk: 15, // Increased from 10 to 15 points
-    cooldown: 600000, // 10 minutes cooldown
-    hashGameRequired: true, // New: requires hash brute-force mini-game
-    reputationCost: 10, // New: costs reputation to attempt
+    successRate: 0.55, // Increased to 55% for better success rate
+    pointsAtRisk: 20, // Higher risk, higher reward
+    cooldown: 480000, // Reduced to 8 minutes
+    hashGameRequired: true,
+    reputationCost: 6, // Balanced cost
   },
 };
 
-// Enhanced challenge success factors
+// Balanced challenge success factors
 const challengeSuccessFactors = {
-  levelDifference: 0.08, // Reduced from 0.1 to 0.08 (+8% per level difference)
-  onlineStatus: 0.12, // Reduced from 0.15 to 0.12 (+12% if target is online)
-  recentActivity: 0.08, // Reduced from 0.1 to 0.08 (+8% if target was active recently)
-  randomFactor: 0.15, // Reduced from 0.2 to 0.15 (±15% random factor)
-  calibrationBonus: 0.1, // New: +10% if station parameters are well balanced
-  reputationBonus: 0.05, // New: +5% per 100 reputation points
-  hashGameBonus: 0.2, // New: +20% if hash game completed quickly (<30s)
+  levelDifference: 0.06, // Reduced to 6% per level for less dominance
+  onlineStatus: 0.08, // Reduced to 8% for more balanced targeting
+  recentActivity: 0.06, // Reduced to 6% for fairer gameplay
+  randomFactor: 0.12, // Reduced to 12% for more predictable outcomes
+  calibrationBonus: 0.08, // Reduced to 8% for balanced station management
+  reputationBonus: 0.03, // Reduced to 3% per 100 reputation for gradual progression
+  hashGameBonus: 0.15, // Reduced to 15% for balanced skill reward
 };
 
-// Hash brute-force game rules
+// Balanced hash brute-force game rules
 const hashGameRules = {
-  baseDifficulty: 4, // Base hidden characters
-  levelScaling: 0.5, // -0.5 hidden chars per level
-  minHiddenChars: 2, // Minimum hidden characters
-  maxHiddenChars: 8, // Maximum hidden characters
-  baseAttempts: 100, // Base attempts allowed
-  attemptsPerLevel: 15, // +15 attempts per level
-  timeBonusThreshold: 30, // Seconds for time bonus
-  difficultyBonus: 50, // Points per hidden character
-  attemptsBonus: 50, // Maximum bonus for few attempts
-  timeBonus: 100, // Maximum time bonus
+  baseDifficulty: 3, // Reduced base difficulty for accessibility
+  levelScaling: 0.3, // Reduced scaling for smoother progression
+  minHiddenChars: 2, // Keep minimum
+  maxHiddenChars: 6, // Reduced maximum for less frustration
+  baseAttempts: 120, // Increased base attempts
+  attemptsPerLevel: 20, // Increased attempts per level
+  timeBonusThreshold: 45, // Increased time threshold for more achievable bonus
+  difficultyBonus: 75, // Increased bonus for better rewards
+  attemptsBonus: 75, // Increased bonus for skill
+  timeBonus: 150, // Increased time bonus
 };
 
-// Reputation system rules
+// Balanced reputation system rules
 const reputationRules = {
-  startingReputation: 100, // Starting reputation
-  maxReputation: 1000, // Maximum reputation
-  challengeCost: 5, // Reputation cost per challenge attempt
-  successReward: 10, // Reputation gained on successful challenge
-  failurePenalty: 15, // Reputation lost on failed challenge
-  dailyDecay: 5, // Reputation lost per day of inactivity
-  calibrationBonus: 2, // Reputation gained for good calibration
+  startingReputation: 150, // Increased starting reputation
+  maxReputation: 1500, // Increased maximum for longer progression
+  challengeCost: 3, // Reduced cost for more accessible challenges
+  successReward: 15, // Increased reward for successful challenges
+  failurePenalty: 8, // Reduced penalty for less punishing failures
+  dailyDecay: 3, // Reduced decay for less punishing inactivity
+  calibrationBonus: 5, // Increased bonus for station management
 };
 
-// Cooldown system rules
+// Balanced cooldown system rules
 const cooldownRules = {
-  generalCooldown: 300000, // 5 minutes general cooldown
-  operatorCooldown: 180000, // 3 minutes per operator
-  hashGameCooldown: 60000, // 1 minute between hash games
-  calibrationCooldown: 120000, // 2 minutes between calibrations
+  generalCooldown: 180000, // Reduced to 3 minutes for more activity
+  operatorCooldown: 120000, // Reduced to 2 minutes per operator
+  hashGameCooldown: 45000, // Reduced to 45 seconds between hash games
+  calibrationCooldown: 90000, // Reduced to 1.5 minutes between calibrations
 };
 
-// Point earning rules
+// Balanced point earning rules
 const pointRules = {
-  baseResetPoints: 1, // Base points for station reset
-  calibrationBonus: 3, // Bonus points for balanced parameters
-  firstResetBonus: 2, // Bonus for being first to reset
-  streakBonus: 1, // Bonus for 4-in-a-row streak
-  hashGamePoints: 100, // Base points for hash game completion
-  challengePoints: 5, // Points gained from successful challenge
-  challengePenalty: 3, // Points lost from failed challenge
+  baseResetPoints: 2, // Increased base points for better progression
+  calibrationBonus: 5, // Increased bonus for station management
+  firstResetBonus: 3, // Increased bonus for being first
+  streakBonus: 2, // Increased streak bonus
+  hashGamePoints: 150, // Increased hash game points
+  challengePoints: 8, // Increased challenge points
+  challengePenalty: 4, // Balanced penalty
 };
 
 // Filter operators
@@ -6142,10 +6320,32 @@ function stopCalibrationGame() {
       // Update UI
       updateStatsUI();
 
+      // Force profile UI update if profile modal is open
+      if (window.updateUserProfile) {
+        window.updateUserProfile();
+      }
+      
+      // Force profile modal update if it's open
+      const profileModal = document.querySelector('.profile-modal');
+      if (profileModal) {
+        // Trigger the profile update function to refresh the modal
+        if (window.updateProfile) {
+          window.updateProfile();
+        }
+      }
+
       addLog(
         `🔧 Calibration session ended. Final score: ${calibrationScore} | +${pointsToAward} points awarded!`,
         "success"
       );
+      
+      // Debug: Log profile update
+      console.log("🔧 Calibration completed, profile updated:", {
+        calibrationSessions: updatedProfile.calibrationSessions,
+        totalCalibrationScore: updatedProfile.totalCalibrationScore,
+        bestCalibrationScore: updatedProfile.bestCalibrationScore,
+        lastCalibrationScore: updatedProfile.lastCalibrationScore
+      });
     });
   } else {
     addLog(
@@ -7019,6 +7219,11 @@ function awardTaskPoints(points) {
 
     // Update UI immediately
     if (stats) updateStatsUI(stats);
+
+    // Force profile UI update if profile modal is open
+    if (window.updateUserProfile) {
+      window.updateUserProfile();
+    }
   });
 }
 
@@ -8495,19 +8700,17 @@ function showHashBruteForceGame() {
     // Generate all possible combinations for systematic brute-force
     function generateAllCombinations(length) {
       const chars = "0123456789abcdef";
-      const combinations = [];
+      let combinations = [""];
 
-      function generate(current, remaining) {
-        if (remaining === 0) {
-          combinations.push(current);
-          return;
+      for (let i = 0; i < length; i++) {
+        let newCombinations = [];
+        for (let combo of combinations) {
+          for (let char of chars) {
+            newCombinations.push(combo + char);
+          }
         }
-        for (let char of chars) {
-          generate(current + char, remaining - 1);
-        }
+        combinations = newCombinations;
       }
-
-      generate("", length);
       return combinations;
     }
 

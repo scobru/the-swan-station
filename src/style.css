@@ -5267,6 +5267,8 @@ body {
     min-width: 120px;
 }
 
+
+
 /* Mobile responsive for hash game */
 @media screen and (max-width: 768px) {
     .hash-game-modal {
