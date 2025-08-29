@@ -579,33 +579,39 @@ let stats = { failures: 0, worlds: 0, resets: 0 };
 // Timer is now fetched from GunDB, not hardcoded.
 document.title = "SYNCING...";
 
-// Leveling System
+// Enhanced Leveling System
+// Updated to reflect new game mechanics and provide better progression
 const levels = {
-  1: 5,
-  2: 30,
-  3: 80,
-  4: 130,
-  5: 250,
-  6: 350,
-  7: 500,
-  8: 700,
-  9: 900,
-  10: 1125,
-  11: 1375,
-  12: 1650,
-  13: 1950,
-  14: 2275,
-  15: 2625,
-  16: 3000,
-  17: 3400,
-  18: 3825,
-  19: 4275,
-  20: 4750,
-  21: 5250,
-  22: 5775,
-  23: 6325,
-  24: 6900,
-  25: 7500,
+  1: 5, // Starting level
+  2: 25, // Easier early progression
+  3: 60, // More accessible
+  4: 120, // Balanced progression
+  5: 200, // Mid-game entry
+  6: 300, // Challenge begins
+  7: 450, // Advanced play
+  8: 650, // Expert level
+  9: 900, // Master level
+  10: 1200, // Elite level
+  11: 1550, // Legendary
+  12: 1950, // Mythic
+  13: 2400, // Transcendent
+  14: 2900, // Divine
+  15: 3450, // Immortal
+  16: 4050, // Eternal
+  17: 4700, // Cosmic
+  18: 5400, // Universal
+  19: 6150, // Multiversal
+  20: 6950, // Omniversal
+  21: 7800, // Absolute
+  22: 8700, // Infinite
+  23: 9650, // Ultimate
+  24: 10650, // Supreme
+  25: 11700, // Transcendent Master
+  26: 12800, // Divine Master
+  27: 14000, // Immortal Master
+  28: 15300, // Eternal Master
+  29: 16700, // Cosmic Master
+  30: 18200, // Universal Master
 };
 
 function getLevelFromPoints(points) {
@@ -737,10 +743,25 @@ function startApp(alias) {
 
     if (!profile) {
       console.log("🆕 Creating initial profile for new user");
-      const initialProfile = { points: 5, level: 1, resetStreak: 0 };
+      const initialProfile = {
+        points: 5,
+        level: 1,
+        resetStreak: 0,
+        reputation: reputationRules.startingReputation,
+        challengesWon: 0,
+        challengesLost: 0,
+        totalPointsStolen: 0,
+        totalPointsLost: 0,
+        hashGamesWon: 0,
+        totalHashPoints: 0,
+      };
       user.get("profile").put(initialProfile);
       // Also add the new user to the public leaderboard
-      gun.get("leaderboard").get(alias).put({ points: 5, level: 1 });
+      gun.get("leaderboard").get(alias).put({
+        points: 5,
+        level: 1,
+        reputation: reputationRules.startingReputation,
+      });
       currentUser.points = 5;
       currentUser.level = 1;
     } else {
@@ -800,6 +821,8 @@ function startApp(alias) {
       if (profile) {
         currentUser.points = profile.points;
         currentUser.level = getLevelFromPoints(profile.points);
+        currentUser.reputation =
+          profile.reputation || reputationRules.startingReputation;
         if (stats) updateStatsUI(stats);
         console.log("📊 Manual profile update completed");
       }
@@ -812,6 +835,12 @@ function startApp(alias) {
   // Load cooldowns from GunDB
   loadCooldownsFromGunDB();
   loadCalibrationFromGunDB();
+  loadChallengeCooldownFromGunDB();
+
+  // Start challenge cooldown update interval
+  const challengeCooldownInterval = safeSetInterval(() => {
+    updateChallengeCooldownUI();
+  }, 1000); // Update every second
 
   // Show the main container and hide header
   const container = document.querySelector(".container");
@@ -1478,7 +1507,7 @@ input.onkeydown = (event) => {
 
         // Update user's personal points and streak
         user.get("profile").once((profile) => {
-          let pointsToAdd = 1; // Base points for successful reset
+          let pointsToAdd = pointRules.baseResetPoints; // Base points for successful reset
           const newStreak = (profile.resetStreak || 0) + 1;
 
           // Check station parameters balance for bonus points
@@ -1515,11 +1544,31 @@ input.onkeydown = (event) => {
               addLog(`LEVEL UP! You are now Level ${newLevel}.`, "success");
             }
 
+            if (reputationBonus > 0) {
+              addLog(
+                `Excellent calibration! +${reputationBonus} reputation.`,
+                "success"
+              );
+            }
+
+            // Calculate reputation bonus for good calibration
+            let reputationBonus = 0;
+            if (parameterBonus >= 3) {
+              reputationBonus = reputationRules.calibrationBonus;
+            }
+
+            const newReputation = Math.min(
+              reputationRules.maxReputation,
+              (profile.reputation || reputationRules.startingReputation) +
+                reputationBonus
+            );
+
             const newProfile = {
               points: newPoints,
               level: newLevel,
               resetStreak: newStreak,
               resets: (profile.resets || 0) + 1,
+              reputation: newReputation,
             };
             // Update user's private profile
             user.get("profile").put(newProfile);
@@ -1528,11 +1577,13 @@ input.onkeydown = (event) => {
             gun.get("leaderboard").get(currentUser.alias).put({
               points: newPoints,
               level: newLevel,
+              reputation: newReputation,
             });
 
             // Update local user data immediately
             currentUser.points = newPoints;
             currentUser.level = newLevel;
+            currentUser.reputation = newReputation;
 
             // Update UI immediately
             if (stats) updateStatsUI(stats);
@@ -2263,6 +2314,10 @@ function updateStatsUI(newStats) {
                     : ""
                 }
             </div>
+            <div id="challengeCooldownBar" class="challenge-cooldown-bar" style="display: none;">
+                <div class="cooldown-progress"></div>
+                <div class="cooldown-text">Challenge Cooldown: 300s remaining</div>
+            </div>
             <div class="stats-buttons">
                 <button id="profileBtn" class="stats-button">[ PROFILE ]</button>
                 <button id="globalStatsBtn" class="stats-button">[ GLOBAL STATS ]</button>
@@ -2658,6 +2713,16 @@ function showActiveOperators() {
     initializeActiveOperatorsList();
     addLog("Active operators refreshed", "info");
   };
+
+  // Set up periodic updates to ensure cooldown status is current
+  const cooldownUpdateInterval = setInterval(() => {
+    if (document.getElementById("activeOperatorsList")) {
+      updateActiveOperatorsList(currentOperatorsData);
+    } else {
+      // Modal closed, stop the interval
+      clearInterval(cooldownUpdateInterval);
+    }
+  }, 5000); // Update every 5 seconds
 
   // Add sort button handler
   overlay.querySelector("#sortOperatorsBtn").onclick = () => {
@@ -3467,8 +3532,23 @@ function updateActiveOperatorsList(operators) {
   const listHTML = sortedOperators
     .map((operator) => {
       const avatar = generateAvatar(operator.pub);
-      const canChallenge = operator.pub !== user.is.pub; // Can challenge both online and offline operators
+      const currentUserPub = user.is?.pub;
+      const canChallenge = operator.pub !== currentUserPub; // Can challenge both online and offline operators
       const isOnCooldown = isOperatorOnCooldown(operator.pub);
+
+      // Debug logging for cooldown status
+      console.log(
+        `🔍 Debug - Operator ${operator.name} (${operator.pub}): canChallenge=${canChallenge}, isOnCooldown=${isOnCooldown}, currentUserPub=${currentUserPub}`
+      );
+      if (isOnCooldown) {
+        const cooldownEnd = operatorCooldowns.get(operator.pub);
+        const remaining = Math.ceil((cooldownEnd - Date.now()) / 1000);
+        console.log(
+          `🔍 Debug - Cooldown details: end=${new Date(
+            cooldownEnd
+          ).toLocaleString()}, remaining=${remaining}s`
+        );
+      }
 
       return `
     <div class="operator-list-item ${
@@ -3492,7 +3572,7 @@ function updateActiveOperatorsList(operators) {
       </div>
       <div class="operator-actions">
         ${
-          canChallenge && !isOnCooldown
+          canChallenge && !isOnCooldown && !challengeCooldownActive
             ? `
           <button class="challenge-btn point-steal" onclick="this.disabled=true; this.textContent='⚔️ STEALING...'; initiateChallenge('${
             operator.pub
@@ -3509,9 +3589,15 @@ function updateActiveOperatorsList(operators) {
             🏆 CHALLENGE${!operator.isOnline ? " (EASY)" : ""}
           </button>
         `
-            : canChallenge && isOnCooldown
+            : canChallenge && (isOnCooldown || challengeCooldownActive)
             ? `
-          <span class="cooldown-text">⏳ COOLDOWN</span>
+          <span class="cooldown-text">⏳ COOLDOWN ${
+            challengeCooldownActive
+              ? "(GENERAL)"
+              : `(${Math.ceil(
+                  (operatorCooldowns.get(operator.pub) - Date.now()) / 1000
+                )}s)`
+          }</span>
         `
             : `
           <span class="self-text">YOU</span>
@@ -3524,6 +3610,25 @@ function updateActiveOperatorsList(operators) {
     .join("");
 
   operatorsList.innerHTML = listHTML;
+
+  // Debug: Show current state of operatorCooldowns Map
+  console.log(
+    "🔍 Debug - Current operatorCooldowns Map:",
+    Array.from(operatorCooldowns.entries())
+  );
+
+  // Additional debug: Check if any operators should be on cooldown
+  sortedOperators.forEach((operator) => {
+    const cooldownEnd = operatorCooldowns.get(operator.pub);
+    if (cooldownEnd) {
+      const remaining = Math.ceil((cooldownEnd - Date.now()) / 1000);
+      console.log(
+        `🔍 Debug - Operator ${operator.name} cooldown: end=${new Date(
+          cooldownEnd
+        ).toLocaleString()}, remaining=${remaining}s, valid=${remaining > 0}`
+      );
+    }
+  });
 
   // Update the operators count to show filtered count
   const operatorsCount = document.getElementById("activeOperatorsCount");
@@ -3557,10 +3662,16 @@ function loadCooldownsFromGunDB() {
 
   console.log("🔄 Loading cooldowns from GunDB...");
   user.get("cooldowns").once((cooldowns) => {
+    console.log("🔍 Debug - Raw cooldowns data from GunDB:", cooldowns);
     if (cooldowns) {
       const now = Date.now();
       Object.keys(cooldowns).forEach((operatorPub) => {
         const cooldownEnd = cooldowns[operatorPub];
+        console.log(
+          `🔍 Debug - Processing cooldown for ${operatorPub}: end=${cooldownEnd}, now=${now}, valid=${
+            cooldownEnd > now
+          }`
+        );
         if (cooldownEnd > now) {
           operatorCooldowns.set(operatorPub, cooldownEnd);
           console.log(
@@ -3568,11 +3679,17 @@ function loadCooldownsFromGunDB() {
               cooldownEnd
             ).toLocaleString()}`
           );
+        } else {
+          console.log(
+            `🔍 Debug - Skipping expired cooldown for ${operatorPub}`
+          );
         }
       });
       console.log(
         `✅ Loaded ${operatorCooldowns.size} active cooldowns from GunDB`
       );
+    } else {
+      console.log("🔍 Debug - No cooldowns data found in GunDB");
     }
   });
 }
@@ -3592,31 +3709,101 @@ function saveCooldownsToGunDB() {
   );
 }
 
-// Challenge types
+// ===== GAME RULES & BALANCING =====
+// Updated rules to reflect all new features and mechanics
+//
+// NEW GAME MECHANICS:
+// 1. Hash Brute-Force Mini-Game: Required before each challenge
+// 2. Reputation System: Affects challenge success rates and costs
+// 3. Enhanced Calibration: Station parameters affect challenge success
+// 4. Improved Leveling: 30 levels with better progression
+// 5. Cooldown System: General and per-operator cooldowns
+// 6. Point System: Multiple ways to earn points with bonuses
+//
+// BALANCE CHANGES:
+// - Reduced base success rates for more strategic gameplay
+// - Added reputation costs to prevent spam
+// - Calibration bonus encourages station maintenance
+// - Hash game performance affects challenge success
+// - Better point distribution across activities
+
+// Challenge types with updated mechanics
 const challengeTypes = {
   POINT_STEAL: {
     name: "POINT STEAL",
-    description: "Steal points from another operator",
-    successRate: 0.6, // 60% success rate
-    pointsAtRisk: 5, // Points that can be stolen
+    description:
+      "Steal points from another operator (requires hash brute-force)",
+    successRate: 0.55, // 55% base success rate (reduced from 60%)
+    pointsAtRisk: 8, // Increased from 5 to 8 points
     cooldown: 300000, // 5 minutes cooldown
+    hashGameRequired: true, // New: requires hash brute-force mini-game
+    reputationCost: 5, // New: costs reputation to attempt
   },
 
   CHALLENGE: {
     name: "CHALLENGE",
-    description: "Direct challenge for points",
-    successRate: 0.5, // 50% success rate
-    pointsAtRisk: 10, // More points at stake
+    description: "Direct challenge for points (requires hash brute-force)",
+    successRate: 0.45, // 45% base success rate (reduced from 50%)
+    pointsAtRisk: 15, // Increased from 10 to 15 points
     cooldown: 600000, // 10 minutes cooldown
+    hashGameRequired: true, // New: requires hash brute-force mini-game
+    reputationCost: 10, // New: costs reputation to attempt
   },
 };
 
-// Challenge success factors
+// Enhanced challenge success factors
 const challengeSuccessFactors = {
-  levelDifference: 0.1, // +10% per level difference
-  onlineStatus: 0.15, // +15% if target is online
-  recentActivity: 0.1, // +10% if target was active recently
-  randomFactor: 0.2, // ±20% random factor
+  levelDifference: 0.08, // Reduced from 0.1 to 0.08 (+8% per level difference)
+  onlineStatus: 0.12, // Reduced from 0.15 to 0.12 (+12% if target is online)
+  recentActivity: 0.08, // Reduced from 0.1 to 0.08 (+8% if target was active recently)
+  randomFactor: 0.15, // Reduced from 0.2 to 0.15 (±15% random factor)
+  calibrationBonus: 0.1, // New: +10% if station parameters are well balanced
+  reputationBonus: 0.05, // New: +5% per 100 reputation points
+  hashGameBonus: 0.2, // New: +20% if hash game completed quickly (<30s)
+};
+
+// Hash brute-force game rules
+const hashGameRules = {
+  baseDifficulty: 4, // Base hidden characters
+  levelScaling: 0.5, // -0.5 hidden chars per level
+  minHiddenChars: 2, // Minimum hidden characters
+  maxHiddenChars: 8, // Maximum hidden characters
+  baseAttempts: 100, // Base attempts allowed
+  attemptsPerLevel: 15, // +15 attempts per level
+  timeBonusThreshold: 30, // Seconds for time bonus
+  difficultyBonus: 50, // Points per hidden character
+  attemptsBonus: 50, // Maximum bonus for few attempts
+  timeBonus: 100, // Maximum time bonus
+};
+
+// Reputation system rules
+const reputationRules = {
+  startingReputation: 100, // Starting reputation
+  maxReputation: 1000, // Maximum reputation
+  challengeCost: 5, // Reputation cost per challenge attempt
+  successReward: 10, // Reputation gained on successful challenge
+  failurePenalty: 15, // Reputation lost on failed challenge
+  dailyDecay: 5, // Reputation lost per day of inactivity
+  calibrationBonus: 2, // Reputation gained for good calibration
+};
+
+// Cooldown system rules
+const cooldownRules = {
+  generalCooldown: 300000, // 5 minutes general cooldown
+  operatorCooldown: 180000, // 3 minutes per operator
+  hashGameCooldown: 60000, // 1 minute between hash games
+  calibrationCooldown: 120000, // 2 minutes between calibrations
+};
+
+// Point earning rules
+const pointRules = {
+  baseResetPoints: 1, // Base points for station reset
+  calibrationBonus: 3, // Bonus points for balanced parameters
+  firstResetBonus: 2, // Bonus for being first to reset
+  streakBonus: 1, // Bonus for 4-in-a-row streak
+  hashGamePoints: 100, // Base points for hash game completion
+  challengePoints: 5, // Points gained from successful challenge
+  challengePenalty: 3, // Points lost from failed challenge
 };
 
 // Filter operators
@@ -5447,6 +5634,19 @@ let calibrationGameActive = false;
 let calibrationScore = 0;
 let calibrationStartTime = 0;
 
+// Challenge system variables
+let challengeCooldownActive = false;
+let challengeCooldownEndTime = 0;
+let hashBruteForceGame = {
+  active: false,
+  targetHash: "",
+  hiddenChars: 4,
+  attempts: 0,
+  maxAttempts: 100,
+  startTime: 0,
+  difficulty: 1,
+};
+
 // Load calibration data from GunDB
 function loadCalibrationFromGunDB() {
   if (!user || !user.is || !user.is.pub) return;
@@ -5903,7 +6103,7 @@ function stopCalibrationGame() {
   calibrationGameActive = false;
 
   // Calculate points to award based on calibration score
-  const pointsToAward = calculateCalibrationPoints(calibrationScore, profile);
+  const pointsToAward = calculateCalibrationPoints(calibrationScore, null);
 
   // Award points to the user
   if (pointsToAward > 0 && currentUser) {
@@ -6960,6 +7160,48 @@ function initiateChallenge(targetPub, challengeType) {
     return;
   }
 
+  // Check if user has enough reputation
+  const requiredReputation = challengeTypes[challengeType].reputationCost;
+  const currentReputation =
+    currentUser.reputation || reputationRules.startingReputation;
+
+  if (currentReputation < requiredReputation) {
+    addLog(
+      `ERROR: Need at least ${requiredReputation} reputation to initiate a ${challengeType}`,
+      "error"
+    );
+    return;
+  }
+
+  // Check challenge cooldown
+  if (challengeCooldownActive) {
+    const remaining = Math.ceil((challengeCooldownEndTime - Date.now()) / 1000);
+    addLog(
+      `ERROR: Challenge cooldown active. Wait ${remaining}s before next challenge.`,
+      "error"
+    );
+    return;
+  }
+
+  // Check if hash game is already active
+  if (hashBruteForceGame.active) {
+    addLog(
+      `ERROR: Hash brute-force game already in progress. Complete it first.`,
+      "error"
+    );
+    showHashBruteForceGame();
+    return;
+  }
+
+  // Check if there's already a pending challenge
+  if (window.pendingChallenge) {
+    addLog(
+      `ERROR: Challenge already in progress. Complete the current challenge first.`,
+      "error"
+    );
+    return;
+  }
+
   // Check cooldown
   if (isOperatorOnCooldown(targetPub)) {
     addLog("ERROR: Target operator is on cooldown", "error");
@@ -7094,38 +7336,85 @@ function continueWithChallenge(targetOperator, challengeType) {
     type: challenge.type,
   });
 
-  // Execute challenge immediately
-  executeChallenge(challenge);
+  // Save challenge for later execution
+  window.pendingChallenge = challenge;
+
+  // Start challenge cooldown and hash game instead of immediate execution
+  startChallengeCooldown();
+  generateHashBruteForceGame();
+
+  addLog(
+    `🔐 Challenge initiated! Complete the hash brute-force to proceed.`,
+    "info"
+  );
+  showHashBruteForceGame();
 }
 
 function calculateChallengeSuccess(targetOperator, challengeType) {
   let baseRate = challengeTypes[challengeType].successRate;
 
-  // Level difference factor
+  // Level difference factor (reduced impact)
   const levelDiff = currentUser.level - (targetOperator.level || 1);
   baseRate += levelDiff * challengeSuccessFactors.levelDifference;
 
-  // Online status factor - offline targets are easier to steal from
-  if (targetOperator.isOnline) {
-    baseRate += challengeSuccessFactors.onlineStatus; // +15% if online (harder)
-  } else {
-    baseRate -= challengeSuccessFactors.onlineStatus; // -15% if offline (easier)
+  // Calibration bonus - check if station parameters are well balanced
+  if (stationParameters) {
+    const powerBalanced = Math.abs(stationParameters.powerLevel - 50) < 10;
+    const oxygenBalanced = Math.abs(stationParameters.oxygenLevel - 50) < 10;
+    const tempBalanced = Math.abs(stationParameters.temperature - 20) < 5;
+    const radiationBalanced = stationParameters.radiationLevel < 0.5;
+    const pressureBalanced = Math.abs(stationParameters.pressure - 1000) < 50;
+    const humidityBalanced = Math.abs(stationParameters.humidity - 50) < 10;
+
+    const balancedParams = [
+      powerBalanced,
+      oxygenBalanced,
+      tempBalanced,
+      radiationBalanced,
+      pressureBalanced,
+      humidityBalanced,
+    ].filter(Boolean).length;
+
+    if (balancedParams >= 4) {
+      baseRate += challengeSuccessFactors.calibrationBonus;
+    }
   }
 
-  // Recent activity factor
+  // Reputation bonus
+  const userReputation =
+    currentUser.reputation || reputationRules.startingReputation;
+  const reputationBonus =
+    Math.floor(userReputation / 100) * challengeSuccessFactors.reputationBonus;
+  baseRate += Math.min(0.2, reputationBonus); // Max +20% from reputation
+
+  // Hash game performance bonus
+  if (
+    hashBruteForceGame.completionTime &&
+    hashBruteForceGame.completionTime < hashGameRules.timeBonusThreshold * 1000
+  ) {
+    baseRate += challengeSuccessFactors.hashGameBonus;
+  }
+
+  // Online status factor (reduced impact)
+  if (targetOperator.isOnline) {
+    baseRate += challengeSuccessFactors.onlineStatus;
+  } else {
+    baseRate -= challengeSuccessFactors.onlineStatus;
+  }
+
+  // Recent activity factor (reduced impact)
   const timeSinceLastSeen = Date.now() - targetOperator.lastSeen;
   if (timeSinceLastSeen < 60000) {
-    // Active in last minute
     baseRate += challengeSuccessFactors.recentActivity;
   }
 
-  // Random factor
+  // Random factor (reduced impact)
   const randomFactor =
     (Math.random() - 0.5) * 2 * challengeSuccessFactors.randomFactor;
   baseRate += randomFactor;
 
-  // Clamp between 0.1 and 0.95
-  return Math.max(0.1, Math.min(0.95, baseRate));
+  // Clamp between 0.05 and 0.95 (wider range for more dynamic gameplay)
+  return Math.max(0.05, Math.min(0.95, baseRate));
 }
 
 function executeChallenge(challenge) {
@@ -7134,21 +7423,29 @@ function executeChallenge(challenge) {
   challenge.status = "completed";
 
   if (success) {
-    // Challenge successful - steal points
+    // Challenge successful - steal points using new rules
     const pointsStolen = Math.min(
-      challenge.pointsAtRisk || 5,
-      (challenge.target?.level || 1) * 2
+      challenge.pointsAtRisk || pointRules.challengePoints,
+      (challenge.target?.level || 1) * 3 // Increased multiplier
     );
 
-    // Update challenger points
+    // Update challenger points and reputation
     user.get("profile").once((profile) => {
       const newPoints = (profile.points || 0) + pointsStolen;
       const newLevel = getLevelFromPoints(newPoints);
+      const newReputation = Math.min(
+        reputationRules.maxReputation,
+        (profile.reputation || reputationRules.startingReputation) +
+          reputationRules.successReward
+      );
+
       const newProfile = {
         ...profile,
         points: newPoints,
         level: newLevel,
+        reputation: newReputation,
         challengesWon: (profile.challengesWon || 0) + 1,
+        totalPointsStolen: (profile.totalPointsStolen || 0) + pointsStolen,
       };
       user.get("profile").put(newProfile);
 
@@ -7156,16 +7453,18 @@ function executeChallenge(challenge) {
       gun.get("leaderboard").get(currentUser.alias).put({
         points: newPoints,
         level: newLevel,
+        reputation: newReputation,
       });
 
       // Update local data
       currentUser.points = newPoints;
       currentUser.level = newLevel;
+      currentUser.reputation = newReputation;
 
       addLog(
         `CHALLENGE SUCCESS! Stole ${pointsStolen} points from ${
           challenge.target?.alias || "Unknown"
-        }`,
+        } (+${reputationRules.successReward} reputation)`,
         "success"
       );
     });
@@ -7202,18 +7501,26 @@ function executeChallenge(challenge) {
         }
       });
   } else {
-    // Challenge failed
+    // Challenge failed - lose points and reputation
     const pointsLost = Math.floor(challenge.pointsAtRisk / 2);
 
-    // Lose points for failed challenge
+    // Lose points and reputation for failed challenge
     user.get("profile").once((profile) => {
       const newPoints = Math.max(0, (profile.points || 0) - pointsLost);
       const newLevel = getLevelFromPoints(newPoints);
+      const newReputation = Math.max(
+        0,
+        (profile.reputation || reputationRules.startingReputation) -
+          reputationRules.failurePenalty
+      );
+
       const newProfile = {
         ...profile,
         points: newPoints,
         level: newLevel,
+        reputation: newReputation,
         challengesLost: (profile.challengesLost || 0) + 1,
+        totalPointsLost: (profile.totalPointsLost || 0) + pointsLost,
       };
       user.get("profile").put(newProfile);
 
@@ -7221,16 +7528,18 @@ function executeChallenge(challenge) {
       gun.get("leaderboard").get(currentUser.alias).put({
         points: newPoints,
         level: newLevel,
+        reputation: newReputation,
       });
 
       // Update local data
       currentUser.points = newPoints;
       currentUser.level = newLevel;
+      currentUser.reputation = newReputation;
 
       addLog(
         `CHALLENGE FAILED! Lost ${pointsLost} points to ${
           challenge.target?.alias || "Unknown"
-        }`,
+        } (-${reputationRules.failurePenalty} reputation)`,
         "error"
       );
     });
@@ -7274,6 +7583,11 @@ function executeChallenge(challenge) {
 
   // Update the active operators list immediately to show cooldown
   updateActiveOperatorsList(currentOperatorsData);
+
+  // Also update the list periodically to ensure cooldown status is current
+  setTimeout(() => {
+    updateActiveOperatorsList(currentOperatorsData);
+  }, 1000);
 }
 
 function showChallengeResult(challenge) {
@@ -7328,23 +7642,69 @@ function showChallengeResult(challenge) {
 }
 
 function setOperatorCooldown(operatorPub, duration) {
-  operatorCooldowns.set(operatorPub, Date.now() + duration);
+  const cooldownEnd = Date.now() + duration;
+  operatorCooldowns.set(operatorPub, cooldownEnd);
+  console.log(
+    `🔍 Debug - Set cooldown for ${operatorPub}: duration=${duration}ms, end=${new Date(
+      cooldownEnd
+    ).toLocaleString()}`
+  );
   // Save to GunDB immediately
   saveCooldownsToGunDB();
 }
 
 function isOperatorOnCooldown(operatorPub) {
   const cooldownEnd = operatorCooldowns.get(operatorPub);
-  if (!cooldownEnd) return false;
+  console.log(
+    `🔍 Debug - isOperatorOnCooldown(${operatorPub}): cooldownEnd=${cooldownEnd}, now=${Date.now()}`
+  );
+
+  if (!cooldownEnd) {
+    console.log(`🔍 Debug - No cooldown found for ${operatorPub}`);
+    return false;
+  }
 
   if (Date.now() > cooldownEnd) {
+    console.log(
+      `🔍 Debug - Cooldown expired for ${operatorPub}, removing from map`
+    );
     operatorCooldowns.delete(operatorPub);
     // Save to GunDB when cooldown expires
     saveCooldownsToGunDB();
     return false;
   }
 
+  console.log(
+    `🔍 Debug - Operator ${operatorPub} is on cooldown until ${new Date(
+      cooldownEnd
+    ).toLocaleString()}`
+  );
   return true;
+}
+
+// Debug function to manually check and refresh cooldown status
+function debugCooldownStatus() {
+  console.log("🔍 Debug - Manual cooldown status check:");
+  console.log("🔍 Debug - Current time:", new Date().toLocaleString());
+  console.log("🔍 Debug - operatorCooldowns Map size:", operatorCooldowns.size);
+  console.log(
+    "🔍 Debug - operatorCooldowns entries:",
+    Array.from(operatorCooldowns.entries())
+  );
+
+  // Check each operator in currentOperatorsData
+  if (currentOperatorsData && currentOperatorsData.length > 0) {
+    console.log("🔍 Debug - Checking cooldown status for all operators:");
+    currentOperatorsData.forEach((operator) => {
+      const isOnCooldown = isOperatorOnCooldown(operator.pub);
+      console.log(
+        `🔍 Debug - ${operator.name} (${operator.pub}): isOnCooldown=${isOnCooldown}`
+      );
+    });
+  }
+
+  // Force update the UI
+  updateActiveOperatorsList(currentOperatorsData);
 }
 
 // Challenge Events Panel
@@ -7906,4 +8266,449 @@ function fixCorruptedChallenges() {
     loadChallengeEvents();
     loadChallengeHistory();
   }, 2000);
+}
+
+// Hash Brute-Force Mini-Game Functions
+function generateHashBruteForceGame() {
+  const targetHash = generateRandomHash();
+
+  // Calculate hidden characters based on new rules
+  const hiddenChars = Math.max(
+    hashGameRules.minHiddenChars,
+    Math.min(
+      hashGameRules.maxHiddenChars,
+      hashGameRules.baseDifficulty -
+        (currentUser.level - 1) * hashGameRules.levelScaling
+    )
+  );
+
+  // Calculate max attempts based on new rules
+  const maxAttempts =
+    hashGameRules.baseAttempts +
+    (currentUser.level - 1) * hashGameRules.attemptsPerLevel;
+
+  hashBruteForceGame = {
+    active: true,
+    targetHash: targetHash,
+    hiddenChars: hiddenChars,
+    attempts: 0,
+    maxAttempts: maxAttempts,
+    startTime: Date.now(),
+    difficulty: currentUser.level,
+    completionTime: null, // Track completion time for bonus calculation
+  };
+
+  console.log(
+    `🔐 Hash game started - Level ${currentUser.level}, ${hiddenChars} hidden chars, ${maxAttempts} max attempts`
+  );
+  return hashBruteForceGame;
+}
+
+function generateRandomHash() {
+  const chars = "0123456789abcdef";
+  let hash = "";
+  for (let i = 0; i < 32; i++) {
+    hash += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return hash;
+}
+
+function attemptHashBruteForce(guess) {
+  if (!hashBruteForceGame.active) return false;
+
+  hashBruteForceGame.attempts++;
+
+  // Check if guess matches the hidden part
+  const visiblePart = hashBruteForceGame.targetHash.slice(
+    0,
+    -hashBruteForceGame.hiddenChars
+  );
+  const hiddenPart = hashBruteForceGame.targetHash.slice(
+    -hashBruteForceGame.hiddenChars
+  );
+
+  if (guess === hiddenPart) {
+    // Success! Calculate points using new rules
+    const completionTime = Date.now() - hashBruteForceGame.startTime;
+    hashBruteForceGame.completionTime = completionTime;
+
+    const timeBonus = Math.max(
+      0,
+      hashGameRules.timeBonus - Math.floor(completionTime / 1000)
+    );
+    const difficultyBonus =
+      hashBruteForceGame.hiddenChars * hashGameRules.difficultyBonus;
+    const attemptsBonus = Math.max(
+      0,
+      hashGameRules.attemptsBonus - hashBruteForceGame.attempts
+    );
+
+    const totalPoints =
+      hashGameRules.hashGamePoints +
+      timeBonus +
+      difficultyBonus +
+      attemptsBonus;
+
+    addLog(
+      `🔐 Hash cracked! +${totalPoints} points (${
+        hashBruteForceGame.attempts
+      } attempts, ${Math.floor(completionTime / 1000)}s)`,
+      "success"
+    );
+
+    // Award points
+    user.get("profile").once((profile) => {
+      const newPoints = (profile.points || 0) + totalPoints;
+      const newLevel = getLevelFromPoints(newPoints);
+      const newProfile = {
+        ...profile,
+        points: newPoints,
+        level: newLevel,
+        hashGamesWon: (profile.hashGamesWon || 0) + 1,
+        totalHashPoints: (profile.totalHashPoints || 0) + totalPoints,
+      };
+      user.get("profile").put(newProfile);
+
+      // Update leaderboard
+      gun.get("leaderboard").get(currentUser.alias).put({
+        points: newPoints,
+        level: newLevel,
+      });
+
+      // Update local data
+      currentUser.points = newPoints;
+      currentUser.level = newLevel;
+      updateStatsUI();
+    });
+
+    // Execute the pending challenge after successful hash game
+    setTimeout(() => {
+      if (window.pendingChallenge) {
+        addLog(
+          `⚔️ Executing challenge against ${
+            window.pendingChallenge.target?.alias || "Unknown"
+          }...`,
+          "info"
+        );
+        executeChallenge(window.pendingChallenge);
+        window.pendingChallenge = null;
+      }
+    }, 1000);
+
+    hashBruteForceGame.active = false;
+    return true;
+  }
+
+  // Check if max attempts reached
+  if (hashBruteForceGame.attempts >= hashBruteForceGame.maxAttempts) {
+    addLog(
+      `🔐 Hash game failed - Max attempts reached (${hashBruteForceGame.maxAttempts})`,
+      "error"
+    );
+    hashBruteForceGame.active = false;
+    return false;
+  }
+
+  return false;
+}
+
+function showHashBruteForceGame() {
+  if (hashBruteForceGame.active) {
+    const overlay = document.createElement("div");
+    overlay.className = "overlay";
+    overlay.innerHTML = `
+      <div class="hash-game-modal">
+        <h2>&gt; HASH BRUTE-FORCE CHALLENGE</h2>
+        
+        <div class="hash-info">
+          <div class="hash-target">
+            <span class="label">TARGET HASH:</span>
+            <span class="hash-value">${hashBruteForceGame.targetHash.slice(
+              0,
+              -hashBruteForceGame.hiddenChars
+            )}<span class="hidden-chars">${"█".repeat(
+      hashBruteForceGame.hiddenChars
+    )}</span></span>
+          </div>
+          <div class="hash-stats">
+            <div class="stat">Level: ${hashBruteForceGame.difficulty}</div>
+            <div class="stat">Hidden: ${
+              hashBruteForceGame.hiddenChars
+            } chars</div>
+            <div class="stat">Attempts: ${hashBruteForceGame.attempts}/${
+      hashBruteForceGame.maxAttempts
+    }</div>
+            <div class="stat">Time: ${Math.floor(
+              (Date.now() - hashBruteForceGame.startTime) / 1000
+            )}s</div>
+          </div>
+        </div>
+        
+        <div class="hash-controls">
+          <div class="control-section">
+            <h3>Manual Brute-Force:</h3>
+            <div class="hash-input">
+              <label for="hashGuess">Guess the hidden characters:</label>
+              <input type="text" id="hashGuess" placeholder="Enter ${
+                hashBruteForceGame.hiddenChars
+              } characters" maxlength="${hashBruteForceGame.hiddenChars}">
+              <button id="submitHashGuess">SUBMIT GUESS</button>
+            </div>
+          </div>
+          
+          <div class="control-section">
+            <h3>Automatic Brute-Force:</h3>
+            <div class="auto-controls">
+              <label for="autoSpeed">Speed (ms delay):</label>
+              <input type="number" id="autoSpeed" value="100" min="10" max="1000" step="10">
+              <button id="startAutoBruteForce">START AUTO BRUTE-FORCE</button>
+              <button id="stopAutoBruteForce" disabled>STOP AUTO BRUTE-FORCE</button>
+            </div>
+            <div class="auto-status" id="autoStatus"></div>
+          </div>
+        </div>
+        
+        <div class="hash-history" id="hashHistory">
+          <h3>Recent Attempts:</h3>
+          <div class="attempts-list"></div>
+        </div>
+        
+        <div class="button" id="closeHashGame">CLOSE</div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const guessInput = overlay.querySelector("#hashGuess");
+    const submitBtn = overlay.querySelector("#submitHashGuess");
+    const closeBtn = overlay.querySelector("#closeHashGame");
+    const attemptsList = overlay.querySelector(".attempts-list");
+    const startAutoBtn = overlay.querySelector("#startAutoBruteForce");
+    const stopAutoBtn = overlay.querySelector("#stopAutoBruteForce");
+    const autoSpeedInput = overlay.querySelector("#autoSpeed");
+    const autoStatus = overlay.querySelector("#autoStatus");
+
+    // Auto brute-force variables
+    let autoBruteForceActive = false;
+    let autoBruteForceInterval = null;
+    let currentGuess = "";
+
+    // Generate all possible combinations for systematic brute-force
+    function generateAllCombinations(length) {
+      const chars = "0123456789abcdef";
+      const combinations = [];
+
+      function generate(current, remaining) {
+        if (remaining === 0) {
+          combinations.push(current);
+          return;
+        }
+        for (let char of chars) {
+          generate(current + char, remaining - 1);
+        }
+      }
+
+      generate("", length);
+      return combinations;
+    }
+
+    // Start automatic brute-force
+    function startAutoBruteForce() {
+      if (autoBruteForceActive) return;
+
+      const speed = parseInt(autoSpeedInput.value) || 100;
+      const combinations = generateAllCombinations(
+        hashBruteForceGame.hiddenChars
+      );
+      let currentIndex = 0;
+
+      autoBruteForceActive = true;
+      startAutoBtn.disabled = true;
+      stopAutoBtn.disabled = false;
+      autoStatus.textContent = `Auto brute-force started. Testing ${combinations.length} combinations...`;
+
+      autoBruteForceInterval = setInterval(() => {
+        if (!hashBruteForceGame.active || currentIndex >= combinations.length) {
+          stopAutoBruteForce();
+          return;
+        }
+
+        const guess = combinations[currentIndex];
+        currentIndex++;
+
+        // Add to history
+        const attemptDiv = document.createElement("div");
+        attemptDiv.className = "attempt-item auto";
+        attemptDiv.innerHTML = `
+          <span class="attempt-number">#${
+            hashBruteForceGame.attempts + 1
+          }</span>
+          <span class="attempt-guess">${guess}</span>
+          <span class="attempt-result">Auto testing...</span>
+        `;
+        attemptsList.appendChild(attemptDiv);
+
+        // Keep only last 10 attempts visible
+        while (attemptsList.children.length > 10) {
+          attemptsList.removeChild(attemptsList.firstChild);
+        }
+
+        // Process guess
+        const success = attemptHashBruteForce(guess);
+        if (success) {
+          attemptDiv.querySelector(".attempt-result").textContent = "SUCCESS!";
+          attemptDiv.className = "attempt-item success";
+          stopAutoBruteForce();
+          setTimeout(() => overlay.remove(), 2000);
+        } else if (
+          hashBruteForceGame.attempts >= hashBruteForceGame.maxAttempts
+        ) {
+          attemptDiv.querySelector(".attempt-result").textContent = "FAILED";
+          attemptDiv.className = "attempt-item failed";
+          stopAutoBruteForce();
+          setTimeout(() => overlay.remove(), 2000);
+        } else {
+          attemptDiv.querySelector(".attempt-result").textContent = "Wrong";
+          attemptDiv.className = "attempt-item wrong";
+        }
+
+        // Update status
+        autoStatus.textContent = `Progress: ${currentIndex}/${
+          combinations.length
+        } (${Math.round((currentIndex / combinations.length) * 100)}%)`;
+      }, speed);
+    }
+
+    // Stop automatic brute-force
+    function stopAutoBruteForce() {
+      if (autoBruteForceInterval) {
+        clearInterval(autoBruteForceInterval);
+        autoBruteForceInterval = null;
+      }
+      autoBruteForceActive = false;
+      startAutoBtn.disabled = false;
+      stopAutoBtn.disabled = true;
+      autoStatus.textContent = "Auto brute-force stopped.";
+    }
+
+    // Manual guess submission
+    submitBtn.onclick = () => {
+      const guess = guessInput.value.toLowerCase();
+      if (guess.length !== hashBruteForceGame.hiddenChars) {
+        addLog("Invalid guess length!", "error");
+        return;
+      }
+
+      // Add to history
+      const attemptDiv = document.createElement("div");
+      attemptDiv.className = "attempt-item";
+      attemptDiv.innerHTML = `
+        <span class="attempt-number">#${hashBruteForceGame.attempts + 1}</span>
+        <span class="attempt-guess">${guess}</span>
+        <span class="attempt-result">Checking...</span>
+      `;
+      attemptsList.appendChild(attemptDiv);
+
+      // Process guess
+      const success = attemptHashBruteForce(guess);
+      if (success) {
+        attemptDiv.querySelector(".attempt-result").textContent = "SUCCESS!";
+        attemptDiv.className = "attempt-item success";
+        stopAutoBruteForce();
+        setTimeout(() => overlay.remove(), 2000);
+      } else if (
+        hashBruteForceGame.attempts >= hashBruteForceGame.maxAttempts
+      ) {
+        attemptDiv.querySelector(".attempt-result").textContent = "FAILED";
+        attemptDiv.className = "attempt-item failed";
+        stopAutoBruteForce();
+        setTimeout(() => overlay.remove(), 2000);
+      } else {
+        attemptDiv.querySelector(".attempt-result").textContent = "Wrong";
+        attemptDiv.className = "attempt-item wrong";
+      }
+
+      guessInput.value = "";
+      guessInput.focus();
+    };
+
+    // Event listeners
+    guessInput.onkeypress = (e) => {
+      if (e.key === "Enter") {
+        submitBtn.click();
+      }
+    };
+
+    startAutoBtn.onclick = startAutoBruteForce;
+    stopAutoBtn.onclick = stopAutoBruteForce;
+    closeBtn.onclick = () => {
+      stopAutoBruteForce();
+      overlay.remove();
+    };
+
+    guessInput.focus();
+  }
+}
+
+// Challenge Cooldown System
+function startChallengeCooldown() {
+  challengeCooldownActive = true;
+  challengeCooldownEndTime = Date.now() + 300000; // 5 minutes
+
+  // Save to GunDB
+  user.get("challengeCooldown").put({
+    active: true,
+    endTime: challengeCooldownEndTime,
+  });
+
+  console.log("⏰ Challenge cooldown started - 5 minutes");
+  updateChallengeCooldownUI();
+}
+
+function updateChallengeCooldownUI() {
+  const cooldownBar = document.getElementById("challengeCooldownBar");
+  if (!cooldownBar) return;
+
+  if (challengeCooldownActive) {
+    const remaining = Math.max(0, challengeCooldownEndTime - Date.now());
+    const progress = Math.max(0, Math.min(100, (remaining / 300000) * 100));
+
+    cooldownBar.style.display = "block";
+    cooldownBar.querySelector(".cooldown-progress").style.width = `${
+      100 - progress
+    }%`;
+    cooldownBar.querySelector(
+      ".cooldown-text"
+    ).textContent = `Challenge Cooldown: ${Math.ceil(
+      remaining / 1000
+    )}s remaining`;
+
+    if (remaining <= 0) {
+      challengeCooldownActive = false;
+      cooldownBar.style.display = "none";
+      console.log("⏰ Challenge cooldown ended");
+    }
+  } else {
+    cooldownBar.style.display = "none";
+  }
+}
+
+function loadChallengeCooldownFromGunDB() {
+  if (!user || !user.is || !user.is.pub) return;
+
+  user.get("challengeCooldown").once((data) => {
+    if (data && data.active) {
+      challengeCooldownActive = data.active;
+      challengeCooldownEndTime = data.endTime || 0;
+
+      // Check if cooldown is still active
+      if (Date.now() < challengeCooldownEndTime) {
+        console.log("⏰ Loaded active challenge cooldown from GunDB");
+        updateChallengeCooldownUI();
+      } else {
+        // Cooldown expired
+        challengeCooldownActive = false;
+        user.get("challengeCooldown").put(null);
+      }
+    }
+  });
 }
