@@ -716,6 +716,13 @@ function startApp(alias) {
     }
   }, 30000);
 
+  // Update operators list periodically to handle cooldown expiration
+  const cooldownUpdateInterval = safeSetInterval(() => {
+    if (currentOperatorsData.length > 0) {
+      updateActiveOperatorsList(currentOperatorsData);
+    }
+  }, 5000); // Check every 5 seconds
+
   // Fetch or initialize user profile with timeout protection
   console.log("🔍 Fetching user profile...");
   const profileTimeout = setTimeout(() => {
@@ -801,6 +808,10 @@ function startApp(alias) {
 
   // Initial profile update
   window.updateUserProfile();
+
+  // Load cooldowns from GunDB
+  loadCooldownsFromGunDB();
+  loadCalibrationFromGunDB();
 
   // Show the main container and hide header
   const container = document.querySelector(".container");
@@ -2226,6 +2237,8 @@ function updateStatsUI(newStats) {
                 <button id="networkBtn" class="stats-button">[ NETWORK ]</button>
                 <button id="mapBtn" class="stats-button">[ MAP ]</button>
                 <button id="activeOperatorsBtn" class="stats-button">[ ACTIVE OPERATORS ]</button>
+                <button id="challengeEventsBtn" class="stats-button">[ CHALLENGES ]</button>
+                <button id="calibrationBtn" class="stats-button">[ CALIBRATION ]</button>
             </div>
         </div>
     `;
@@ -2240,6 +2253,8 @@ function updateStatsUI(newStats) {
   const networkBtn = document.getElementById("networkBtn");
   const mapBtn = document.getElementById("mapBtn");
   const activeOperatorsBtn = document.getElementById("activeOperatorsBtn");
+  const challengeEventsBtn = document.getElementById("challengeEventsBtn");
+  const calibrationBtn = document.getElementById("calibrationBtn");
 
   if (profileBtn) profileBtn.onclick = showProfile;
   if (globalStatsBtn) globalStatsBtn.onclick = showGlobalStats;
@@ -2250,6 +2265,8 @@ function updateStatsUI(newStats) {
   if (networkBtn) networkBtn.onclick = showNetworkAnalytics;
   if (mapBtn) mapBtn.onclick = showOperatorsMap;
   if (activeOperatorsBtn) activeOperatorsBtn.onclick = showActiveOperators;
+  if (challengeEventsBtn) challengeEventsBtn.onclick = showChallengeEvents;
+  if (calibrationBtn) calibrationBtn.onclick = showCalibrationGame;
 
   // Debug: Check if all buttons were found (only log once)
   if (!window.buttonsInitialized) {
@@ -3414,8 +3431,13 @@ function updateActiveOperatorsList(operators) {
   const listHTML = sortedOperators
     .map((operator) => {
       const avatar = generateAvatar(operator.pub);
+      const canChallenge = operator.pub !== user.is.pub; // Can challenge both online and offline operators
+      const isOnCooldown = isOperatorOnCooldown(operator.pub);
+
       return `
-    <div class="operator-list-item ${operator.isOnline ? "online" : "offline"}">
+    <div class="operator-list-item ${
+      operator.isOnline ? "online" : "offline"
+    }" data-operator-pub="${operator.pub}">
       <div class="operator-avatar">
         <img src="${avatar}" alt="${operator.name}" />
       </div>
@@ -3431,6 +3453,34 @@ function updateActiveOperatorsList(operators) {
         <div class="operator-status">${
           operator.isOnline ? "ONLINE" : "OFFLINE"
         }</div>
+      </div>
+      <div class="operator-actions">
+        ${
+          canChallenge && !isOnCooldown
+            ? `
+          <button class="challenge-btn point-steal" onclick="this.disabled=true; this.textContent='⚔️ STEALING...'; initiateChallenge('${
+            operator.pub
+          }', 'POINT_STEAL')" title="Steal points${
+                !operator.isOnline ? " (EASY TARGET)" : ""
+              }">
+            ⚔️ STEAL${!operator.isOnline ? " (EASY)" : ""}
+          </button>
+          <button class="challenge-btn challenge" onclick="this.disabled=true; this.textContent='🏆 CHALLENGING...'; initiateChallenge('${
+            operator.pub
+          }', 'CHALLENGE')" title="Direct challenge${
+                !operator.isOnline ? " (EASY TARGET)" : ""
+              }">
+            🏆 CHALLENGE${!operator.isOnline ? " (EASY)" : ""}
+          </button>
+        `
+            : canChallenge && isOnCooldown
+            ? `
+          <span class="cooldown-text">⏳ COOLDOWN</span>
+        `
+            : `
+          <span class="self-text">YOU</span>
+        `
+        }
       </div>
     </div>
   `;
@@ -3456,6 +3506,82 @@ function updateActiveOperatorsList(operators) {
 let currentOperatorFilter = "all";
 let operatorSortOrder = "status"; // "status" or "name"
 let currentOperatorsData = []; // Store current operators data for filtering
+
+// Challenge System
+let activeChallenges = [];
+let challengeHistory = [];
+let challengeInvites = [];
+
+// Cooldown system - now persistent in GunDB
+let operatorCooldowns = new Map();
+
+// Load cooldowns from GunDB on startup
+function loadCooldownsFromGunDB() {
+  if (!user || !user.is || !user.is.pub) return;
+
+  console.log("🔄 Loading cooldowns from GunDB...");
+  user.get("cooldowns").once((cooldowns) => {
+    if (cooldowns) {
+      const now = Date.now();
+      Object.keys(cooldowns).forEach((operatorPub) => {
+        const cooldownEnd = cooldowns[operatorPub];
+        if (cooldownEnd > now) {
+          operatorCooldowns.set(operatorPub, cooldownEnd);
+          console.log(
+            `⏳ Loaded cooldown for ${operatorPub}: ${new Date(
+              cooldownEnd
+            ).toLocaleString()}`
+          );
+        }
+      });
+      console.log(
+        `✅ Loaded ${operatorCooldowns.size} active cooldowns from GunDB`
+      );
+    }
+  });
+}
+
+// Save cooldowns to GunDB
+function saveCooldownsToGunDB() {
+  if (!user || !user.is || !user.is.pub) return;
+
+  const cooldownsToSave = {};
+  operatorCooldowns.forEach((endTime, operatorPub) => {
+    cooldownsToSave[operatorPub] = endTime;
+  });
+
+  user.get("cooldowns").put(cooldownsToSave);
+  console.log(
+    `💾 Saved ${Object.keys(cooldownsToSave).length} cooldowns to GunDB`
+  );
+}
+
+// Challenge types
+const challengeTypes = {
+  POINT_STEAL: {
+    name: "POINT STEAL",
+    description: "Steal points from another operator",
+    successRate: 0.6, // 60% success rate
+    pointsAtRisk: 5, // Points that can be stolen
+    cooldown: 300000, // 5 minutes cooldown
+  },
+
+  CHALLENGE: {
+    name: "CHALLENGE",
+    description: "Direct challenge for points",
+    successRate: 0.5, // 50% success rate
+    pointsAtRisk: 10, // More points at stake
+    cooldown: 600000, // 10 minutes cooldown
+  },
+};
+
+// Challenge success factors
+const challengeSuccessFactors = {
+  levelDifference: 0.1, // +10% per level difference
+  onlineStatus: 0.15, // +15% if target is online
+  recentActivity: 0.1, // +10% if target was active recently
+  randomFactor: 0.2, // ±20% random factor
+};
 
 // Filter operators
 function filterOperators(filter) {
@@ -4564,6 +4690,12 @@ function initializeTaskSystem() {
       stationParameters = { ...stationParameters, ...params };
       updateStationParametersDisplay();
       checkParameterAlerts();
+
+      // Sync to calibration bars if calibration game is not active
+      // But avoid infinite loops by checking if values actually changed
+      if (!calibrationGameActive && !window.isSyncing) {
+        syncStationToCalibration();
+      }
     }
   });
 
@@ -4584,6 +4716,9 @@ function initializeTaskSystem() {
 
   // Start task cleanup
   startTaskCleanup();
+
+  // Start instability system
+  startInstabilitySystem();
 }
 
 function loadTasksFromGunDB() {
@@ -5018,24 +5153,48 @@ function startTaskCleanup() {
 }
 
 function startTaskGeneration() {
-  // Generate tasks every 5-10 minutes
+  // Generate tasks every 5-10 minutes with instability system
   const generateTask = () => {
-    const taskType = Math.random();
+    // Check for instability events that increase task generation
+    const instabilityLevel = getInstabilityLevel();
+    let taskType = Math.random();
+
+    // Instability increases emergency and critical task chances
+    if (instabilityLevel > 0.7) {
+      // High instability: 40% emergency, 40% critical, 20% maintenance
+      if (taskType < 0.4) {
+        taskType = Math.random() * 0.3; // Force emergency
+      } else if (taskType < 0.8) {
+        taskType = 0.3 + Math.random() * 0.3; // Force critical
+      } else {
+        taskType = 0.6 + Math.random() * 0.4; // Force maintenance
+      }
+    } else if (instabilityLevel > 0.4) {
+      // Medium instability: 25% emergency, 45% critical, 30% maintenance
+      if (taskType < 0.25) {
+        taskType = Math.random() * 0.3; // Force emergency
+      } else if (taskType < 0.7) {
+        taskType = 0.3 + Math.random() * 0.3; // Force critical
+      } else {
+        taskType = 0.6 + Math.random() * 0.4; // Force maintenance
+      }
+    }
+
     let category, taskKey;
 
     if (taskType < 0.1) {
-      // 10% chance for emergency task
+      // 10% chance for emergency task (base)
       category = "EMERGENCY";
       const emergencyTasks = Object.keys(taskTypes.EMERGENCY);
       taskKey =
         emergencyTasks[Math.floor(Math.random() * emergencyTasks.length)];
     } else if (taskType < 0.4) {
-      // 30% chance for critical task
+      // 30% chance for critical task (base)
       category = "CRITICAL";
       const criticalTasks = Object.keys(taskTypes.CRITICAL);
       taskKey = criticalTasks[Math.floor(Math.random() * criticalTasks.length)];
     } else {
-      // 60% chance for maintenance task
+      // 60% chance for maintenance task (base)
       category = "MAINTENANCE";
       const maintenanceTasks = Object.keys(taskTypes.MAINTENANCE);
       taskKey =
@@ -5106,13 +5265,710 @@ function startTaskGeneration() {
   // Generate initial task after 5 minutes
   safeSetTimeout(generateTask, 300000);
 
-  // Generate tasks every 10-15 minutes
+  // Generate tasks every 10-15 minutes with instability adjustments
   safeSetInterval(() => {
-    if (activeTasks.length < 2) {
-      // Max 2 active tasks
+    const instabilityLevel = getInstabilityLevel();
+    let maxTasks = 2; // Base max tasks
+
+    // Instability increases max tasks
+    if (instabilityLevel > 0.7) {
+      maxTasks = 4; // High instability = more tasks
+    } else if (instabilityLevel > 0.4) {
+      maxTasks = 3; // Medium instability = more tasks
+    }
+
+    if (activeTasks.length < maxTasks) {
       generateTask();
     }
   }, Math.random() * 300000 + 600000); // 10-15 minutes
+}
+
+// Instability system
+let instabilityLevel = 0.1; // Base instability (0-1)
+let instabilityEvents = [];
+
+function getInstabilityLevel() {
+  return instabilityLevel;
+}
+
+function updateInstabilityLevel() {
+  // Calculate instability based on station parameters
+  let instability = 0.1; // Base instability
+
+  // Add instability based on parameter deviations
+  if (stationParameters) {
+    // Power instability
+    if (
+      stationParameters.powerLevel < 30 ||
+      stationParameters.powerLevel > 90
+    ) {
+      instability += 0.2;
+    }
+
+    // Oxygen instability
+    if (
+      stationParameters.oxygenLevel < 20 ||
+      stationParameters.oxygenLevel > 90
+    ) {
+      instability += 0.2;
+    }
+
+    // Temperature instability
+    if (
+      stationParameters.temperature < 5 ||
+      stationParameters.temperature > 35
+    ) {
+      instability += 0.15;
+    }
+
+    // Radiation instability
+    if (stationParameters.radiationLevel > 0.3) {
+      instability += 0.25;
+    }
+
+    // Pressure instability
+    if (stationParameters.pressure < 950 || stationParameters.pressure > 1050) {
+      instability += 0.15;
+    }
+
+    // Humidity instability
+    if (stationParameters.humidity < 25 || stationParameters.humidity > 75) {
+      instability += 0.1;
+    }
+  }
+
+  // Add random instability events
+  if (Math.random() < 0.1) {
+    // 10% chance every update
+    const randomInstability = Math.random() * 0.3;
+    instability += randomInstability;
+
+    // Add instability event
+    instabilityEvents.push({
+      timestamp: Date.now(),
+      level: randomInstability,
+      description: `Random instability spike: +${(
+        randomInstability * 100
+      ).toFixed(1)}%`,
+    });
+
+    // Keep only last 10 events
+    if (instabilityEvents.length > 10) {
+      instabilityEvents.shift();
+    }
+  }
+
+  // Clamp between 0 and 1
+  instabilityLevel = Math.max(0, Math.min(1, instability));
+
+  // Save to GunDB (only basic instability level, not events array)
+  if (stationParamsRef) {
+    const cleanParams = {
+      powerLevel: stationParameters.powerLevel,
+      oxygenLevel: stationParameters.oxygenLevel,
+      temperature: stationParameters.temperature,
+      radiationLevel: stationParameters.radiationLevel,
+      pressure: stationParameters.pressure,
+      humidity: stationParameters.humidity,
+      instabilityLevel: instabilityLevel,
+      lastUpdate: Date.now(),
+    };
+
+    stationParamsRef.put(cleanParams);
+  }
+
+  return instabilityLevel;
+}
+
+// Start instability updates
+function startInstabilitySystem() {
+  // Update instability every 30 seconds
+  safeSetInterval(() => {
+    updateInstabilityLevel();
+  }, 30000);
+}
+
+// Manual Calibration Game System
+let calibrationBars = {
+  power: { value: 50, target: 50, drift: 0.5, speed: 0.3 },
+  oxygen: { value: 50, target: 50, drift: 0.3, speed: 0.4 },
+  temperature: { value: 20, target: 20, drift: 0.2, speed: 0.5 },
+  radiation: { value: 0.1, target: 0.1, drift: 0.05, speed: 0.6 },
+  pressure: { value: 1000, target: 1000, drift: 2, speed: 0.4 },
+  humidity: { value: 50, target: 50, drift: 0.4, speed: 0.3 },
+};
+
+let calibrationRanges = {
+  power: { min: 40, max: 60 },
+  oxygen: { min: 45, max: 55 },
+  temperature: { min: 18, max: 22 },
+  radiation: { min: 0.05, max: 0.15 },
+  pressure: { min: 990, max: 1010 },
+  humidity: { min: 45, max: 55 },
+};
+
+let calibrationGameActive = false;
+let calibrationScore = 0;
+let calibrationStartTime = 0;
+
+// Load calibration data from GunDB
+function loadCalibrationFromGunDB() {
+  if (!user || !user.is || !user.is.pub) return;
+
+  user.get("calibration").once((data) => {
+    if (data) {
+      calibrationBars = { ...calibrationBars, ...data.bars };
+      calibrationRanges = { ...calibrationRanges, ...data.ranges };
+      calibrationScore = data.score || 0;
+      console.log("✅ Loaded calibration data from GunDB");
+    }
+
+    // Sync with current station parameters
+    syncStationToCalibration();
+  });
+}
+
+// Sync station parameters to calibration bars
+function syncStationToCalibration() {
+  if (!stationParameters || window.isSyncing) return;
+
+  // Check if values actually changed to avoid unnecessary updates
+  const newValues = {
+    power: stationParameters.powerLevel || 50,
+    oxygen: stationParameters.oxygenLevel || 50,
+    temperature: stationParameters.temperature || 20,
+    radiation: stationParameters.radiationLevel || 0.1,
+    pressure: stationParameters.pressure || 1000,
+    humidity: stationParameters.humidity || 50,
+  };
+
+  // Check if any values actually changed
+  const hasChanged =
+    Math.abs(calibrationBars.power.value - newValues.power) > 0.01 ||
+    Math.abs(calibrationBars.oxygen.value - newValues.oxygen) > 0.01 ||
+    Math.abs(calibrationBars.temperature.value - newValues.temperature) >
+      0.01 ||
+    Math.abs(calibrationBars.radiation.value - newValues.radiation) > 0.001 ||
+    Math.abs(calibrationBars.pressure.value - newValues.pressure) > 0.1 ||
+    Math.abs(calibrationBars.humidity.value - newValues.humidity) > 0.01;
+
+  if (!hasChanged) return;
+
+  // Map station parameters to calibration bars
+  calibrationBars.power.value = newValues.power;
+  calibrationBars.oxygen.value = newValues.oxygen;
+  calibrationBars.temperature.value = newValues.temperature;
+  calibrationBars.radiation.value = newValues.radiation;
+  calibrationBars.pressure.value = newValues.pressure;
+  calibrationBars.humidity.value = newValues.humidity;
+
+  console.log("🔄 Synced station parameters to calibration bars");
+}
+
+// Sync calibration values to station parameters
+function syncCalibrationToStation() {
+  if (!stationParameters || window.isSyncing) return;
+
+  // Check if values actually changed to avoid unnecessary updates
+  const newValues = {
+    powerLevel: calibrationBars.power.value,
+    oxygenLevel: calibrationBars.oxygen.value,
+    temperature: calibrationBars.temperature.value,
+    radiationLevel: calibrationBars.radiation.value,
+    pressure: calibrationBars.pressure.value,
+    humidity: calibrationBars.humidity.value,
+  };
+
+  // Check if any values actually changed
+  const hasChanged =
+    Math.abs(stationParameters.powerLevel - newValues.powerLevel) > 0.01 ||
+    Math.abs(stationParameters.oxygenLevel - newValues.oxygenLevel) > 0.01 ||
+    Math.abs(stationParameters.temperature - newValues.temperature) > 0.01 ||
+    Math.abs(stationParameters.radiationLevel - newValues.radiationLevel) >
+      0.001 ||
+    Math.abs(stationParameters.pressure - newValues.pressure) > 0.1 ||
+    Math.abs(stationParameters.humidity - newValues.humidity) > 0.01;
+
+  if (!hasChanged) return;
+
+  // Prevent infinite loops
+  window.isSyncing = true;
+
+  // Map calibration bars to station parameters
+  stationParameters.powerLevel = newValues.powerLevel;
+  stationParameters.oxygenLevel = newValues.oxygenLevel;
+  stationParameters.temperature = newValues.temperature;
+  stationParameters.radiationLevel = newValues.radiationLevel;
+  stationParameters.pressure = newValues.pressure;
+  stationParameters.humidity = newValues.humidity;
+
+  // Update station parameters in GunDB
+  if (stationParamsRef) {
+    // Clean the data to avoid GunDB errors
+    const cleanStationParams = {
+      powerLevel: stationParameters.powerLevel,
+      oxygenLevel: stationParameters.oxygenLevel,
+      temperature: stationParameters.temperature,
+      radiationLevel: stationParameters.radiationLevel,
+      pressure: stationParameters.pressure,
+      humidity: stationParameters.humidity,
+      lastUpdate: Date.now(),
+    };
+
+    // Only add instability data if it exists and is valid
+    if (instabilityLevel !== undefined && !isNaN(instabilityLevel)) {
+      cleanStationParams.instabilityLevel = instabilityLevel;
+    }
+
+    stationParamsRef.put(cleanStationParams);
+  }
+
+  // Update instability level based on new values
+  updateInstabilityLevel();
+
+  // Show sync feedback
+  const syncStatus = document.getElementById("syncStatus");
+  if (syncStatus) {
+    syncStatus.textContent = "✅ Synced to Station";
+    syncStatus.style.color = "#10B981";
+    setTimeout(() => {
+      syncStatus.textContent = "🔄 Synced with Station";
+      syncStatus.style.color = "#10B981";
+    }, 1000);
+  }
+
+  console.log("🔄 Synced calibration values to station parameters");
+
+  // Allow syncing again after a short delay
+  setTimeout(() => {
+    window.isSyncing = false;
+  }, 100);
+}
+
+// Save calibration data to GunDB
+function saveCalibrationToGunDB() {
+  if (!user || !user.is || !user.is.pub) return;
+
+  user.get("calibration").put({
+    bars: calibrationBars,
+    ranges: calibrationRanges,
+    score: calibrationScore,
+    lastUpdate: Date.now(),
+  });
+}
+
+// Update calibration bars with drift
+function updateCalibrationBars() {
+  if (!calibrationGameActive) return;
+
+  Object.keys(calibrationBars).forEach((barKey) => {
+    const bar = calibrationBars[barKey];
+
+    // Apply drift
+    bar.value += (Math.random() - 0.5) * bar.drift;
+
+    // Apply target attraction (bars tend to drift toward target)
+    const targetDiff = bar.target - bar.value;
+    bar.value += targetDiff * bar.speed * 0.01;
+
+    // Clamp values to reasonable ranges
+    if (barKey === "power" || barKey === "oxygen" || barKey === "humidity") {
+      bar.value = Math.max(0, Math.min(100, bar.value));
+    } else if (barKey === "temperature") {
+      bar.value = Math.max(-10, Math.min(50, bar.value));
+    } else if (barKey === "radiation") {
+      bar.value = Math.max(0, Math.min(1, bar.value));
+    } else if (barKey === "pressure") {
+      bar.value = Math.max(900, Math.min(1100, bar.value));
+    }
+  });
+
+  // Sync calibration values to station parameters
+  syncCalibrationToStation();
+
+  // Update score based on how well bars are in range
+  updateCalibrationScore();
+
+  // Save to GunDB
+  saveCalibrationToGunDB();
+}
+
+// Update calibration score
+function updateCalibrationScore() {
+  let inRangeCount = 0;
+  const totalBars = Object.keys(calibrationBars).length;
+
+  Object.keys(calibrationBars).forEach((barKey) => {
+    const bar = calibrationBars[barKey];
+    const range = calibrationRanges[barKey];
+
+    if (bar.value >= range.min && bar.value <= range.max) {
+      inRangeCount++;
+    }
+  });
+
+  // Calculate score based on time and accuracy
+  const timeBonus = Math.floor((Date.now() - calibrationStartTime) / 1000);
+  calibrationScore = Math.max(calibrationScore, inRangeCount * 100 + timeBonus);
+}
+
+// Show calibration game interface
+function showCalibrationGame() {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="calibration-modal">
+      <h2>&gt; MANUAL CALIBRATION SYSTEM</h2>
+      
+      <div class="calibration-info">
+        <div class="score-display">
+          <span>Score: <span id="calibrationScore">${calibrationScore}</span></span>
+          <span>Time: <span id="calibrationTime">00:00</span></span>
+        </div>
+        <div class="instability-display">
+          <span>Instability: <span id="instabilityLevel">${(
+            instabilityLevel * 100
+          ).toFixed(1)}%</span></span>
+        </div>
+        <div class="sync-status">
+          <span id="syncStatus">🔄 Synced with Station</span>
+        </div>
+      </div>
+      
+      <div class="calibration-bars">
+        <div class="calibration-bar" data-bar="power">
+          <div class="bar-label">POWER</div>
+          <div class="bar-container">
+            <div class="bar-fill" id="powerBar"></div>
+            <div class="bar-target" id="powerTarget"></div>
+            <div class="bar-range" id="powerRange"></div>
+          </div>
+          <div class="bar-value" id="powerValue">50.0</div>
+          <div class="bar-controls">
+            <button onclick="adjustBar('power', -5)">-5</button>
+            <button onclick="adjustBar('power', -1)">-1</button>
+            <button onclick="adjustBar('power', 1)">+1</button>
+            <button onclick="adjustBar('power', 5)">+5</button>
+          </div>
+        </div>
+        
+        <div class="calibration-bar" data-bar="oxygen">
+          <div class="bar-label">OXYGEN</div>
+          <div class="bar-container">
+            <div class="bar-fill" id="oxygenBar"></div>
+            <div class="bar-target" id="oxygenTarget"></div>
+            <div class="bar-range" id="oxygenRange"></div>
+          </div>
+          <div class="bar-value" id="oxygenValue">50.0</div>
+          <div class="bar-controls">
+            <button onclick="adjustBar('oxygen', -5)">-5</button>
+            <button onclick="adjustBar('oxygen', -1)">-1</button>
+            <button onclick="adjustBar('oxygen', 1)">+1</button>
+            <button onclick="adjustBar('oxygen', 5)">+5</button>
+          </div>
+        </div>
+        
+        <div class="calibration-bar" data-bar="temperature">
+          <div class="bar-label">TEMPERATURE</div>
+          <div class="bar-container">
+            <div class="bar-fill" id="temperatureBar"></div>
+            <div class="bar-target" id="temperatureTarget"></div>
+            <div class="bar-range" id="temperatureRange"></div>
+          </div>
+          <div class="bar-value" id="temperatureValue">20.0</div>
+          <div class="bar-controls">
+            <button onclick="adjustBar('temperature', -2)">-2</button>
+            <button onclick="adjustBar('temperature', -0.5)">-0.5</button>
+            <button onclick="adjustBar('temperature', 0.5)">+0.5</button>
+            <button onclick="adjustBar('temperature', 2)">+2</button>
+          </div>
+        </div>
+        
+        <div class="calibration-bar" data-bar="radiation">
+          <div class="bar-label">RADIATION</div>
+          <div class="bar-container">
+            <div class="bar-fill" id="radiationBar"></div>
+            <div class="bar-target" id="radiationTarget"></div>
+            <div class="bar-range" id="radiationRange"></div>
+          </div>
+          <div class="bar-value" id="radiationValue">0.10</div>
+          <div class="bar-controls">
+            <button onclick="adjustBar('radiation', -0.02)">-0.02</button>
+            <button onclick="adjustBar('radiation', -0.01)">-0.01</button>
+            <button onclick="adjustBar('radiation', 0.01)">+0.01</button>
+            <button onclick="adjustBar('radiation', 0.02)">+0.02</button>
+          </div>
+        </div>
+        
+        <div class="calibration-bar" data-bar="pressure">
+          <div class="bar-label">PRESSURE</div>
+          <div class="bar-container">
+            <div class="bar-fill" id="pressureBar"></div>
+            <div class="bar-target" id="pressureTarget"></div>
+            <div class="bar-range" id="pressureRange"></div>
+          </div>
+          <div class="bar-value" id="pressureValue">1000</div>
+          <div class="bar-controls">
+            <button onclick="adjustBar('pressure', -10)">-10</button>
+            <button onclick="adjustBar('pressure', -2)">-2</button>
+            <button onclick="adjustBar('pressure', 2)">+2</button>
+            <button onclick="adjustBar('pressure', 10)">+10</button>
+          </div>
+        </div>
+        
+        <div class="calibration-bar" data-bar="humidity">
+          <div class="bar-label">HUMIDITY</div>
+          <div class="bar-container">
+            <div class="bar-fill" id="humidityBar"></div>
+            <div class="bar-target" id="humidityTarget"></div>
+            <div class="bar-range" id="humidityRange"></div>
+          </div>
+          <div class="bar-value" id="humidityValue">50.0</div>
+          <div class="bar-controls">
+            <button onclick="adjustBar('humidity', -5)">-5</button>
+            <button onclick="adjustBar('humidity', -1)">-1</button>
+            <button onclick="adjustBar('humidity', 1)">+1</button>
+            <button onclick="adjustBar('humidity', 5)">+5</button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="calibration-controls">
+        <button id="startCalibrationBtn" class="terminal-button">START CALIBRATION</button>
+        <button id="resetCalibrationBtn" class="terminal-button">RESET</button>
+        <button id="closeCalibrationBtn" class="terminal-button">CLOSE</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Initialize calibration display
+  updateCalibrationDisplay();
+
+  // Add button handlers
+  const startBtn = overlay.querySelector("#startCalibrationBtn");
+  const resetBtn = overlay.querySelector("#resetCalibrationBtn");
+  const closeBtn = overlay.querySelector("#closeCalibrationBtn");
+
+  startBtn.onclick = () => {
+    if (!calibrationGameActive) {
+      startCalibrationGame();
+      startBtn.textContent = "STOP CALIBRATION";
+      startBtn.classList.add("active");
+    } else {
+      stopCalibrationGame();
+      startBtn.textContent = "START CALIBRATION";
+      startBtn.classList.remove("active");
+    }
+  };
+
+  resetBtn.onclick = () => {
+    resetCalibrationGame();
+  };
+
+  closeBtn.onclick = () => {
+    if (calibrationGameActive) {
+      stopCalibrationGame();
+    }
+    overlay.remove();
+  };
+
+  // Start calibration updates
+  const calibrationInterval = setInterval(() => {
+    if (calibrationGameActive) {
+      updateCalibrationBars();
+      updateCalibrationDisplay();
+    }
+  }, 500); // Reduced from 100ms to 500ms to prevent excessive updates
+
+  // Store interval for cleanup
+  overlay.dataset.interval = calibrationInterval;
+
+  // Cleanup on close
+  overlay.addEventListener("remove", () => {
+    clearInterval(calibrationInterval);
+  });
+}
+
+// Adjust calibration bar value
+function adjustBar(barKey, adjustment) {
+  if (!calibrationGameActive) return;
+
+  calibrationBars[barKey].value += adjustment;
+
+  // Clamp values
+  if (barKey === "power" || barKey === "oxygen" || barKey === "humidity") {
+    calibrationBars[barKey].value = Math.max(
+      0,
+      Math.min(100, calibrationBars[barKey].value)
+    );
+  } else if (barKey === "temperature") {
+    calibrationBars[barKey].value = Math.max(
+      -10,
+      Math.min(50, calibrationBars[barKey].value)
+    );
+  } else if (barKey === "radiation") {
+    calibrationBars[barKey].value = Math.max(
+      0,
+      Math.min(1, calibrationBars[barKey].value)
+    );
+  } else if (barKey === "pressure") {
+    calibrationBars[barKey].value = Math.max(
+      900,
+      Math.min(1100, calibrationBars[barKey].value)
+    );
+  }
+
+  // Immediately sync to station parameters
+  syncCalibrationToStation();
+
+  updateCalibrationScore();
+  saveCalibrationToGunDB();
+}
+
+// Start calibration game
+function startCalibrationGame() {
+  calibrationGameActive = true;
+  calibrationStartTime = Date.now();
+
+  // Sync current station parameters to calibration bars when starting
+  syncStationToCalibration();
+
+  addLog("🔧 Manual calibration system activated", "info");
+}
+
+// Stop calibration game
+function stopCalibrationGame() {
+  calibrationGameActive = false;
+  addLog(
+    `🔧 Calibration session ended. Final score: ${calibrationScore}`,
+    "success"
+  );
+}
+
+// Reset calibration game
+function resetCalibrationGame() {
+  calibrationScore = 0;
+  Object.keys(calibrationBars).forEach((barKey) => {
+    calibrationBars[barKey].value = calibrationBars[barKey].target;
+  });
+  // Sync reset values to station parameters
+  syncCalibrationToStation();
+
+  saveCalibrationToGunDB();
+  addLog("🔧 Calibration system reset", "info");
+}
+
+// Update calibration display
+function updateCalibrationDisplay() {
+  // Update score and time
+  const scoreEl = document.getElementById("calibrationScore");
+  const timeEl = document.getElementById("calibrationTime");
+  const instabilityEl = document.getElementById("instabilityLevel");
+
+  if (scoreEl) scoreEl.textContent = calibrationScore;
+  if (instabilityEl)
+    instabilityEl.textContent = `${(instabilityLevel * 100).toFixed(1)}%`;
+
+  if (timeEl && calibrationGameActive) {
+    const elapsed = Math.floor((Date.now() - calibrationStartTime) / 1000);
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = elapsed % 60;
+    timeEl.textContent = `${minutes.toString().padStart(2, "0")}:${seconds
+      .toString()
+      .padStart(2, "0")}`;
+  }
+
+  // Update each bar
+  Object.keys(calibrationBars).forEach((barKey) => {
+    const bar = calibrationBars[barKey];
+    const range = calibrationRanges[barKey];
+
+    // Update value display
+    const valueEl = document.getElementById(`${barKey}Value`);
+    if (valueEl) {
+      if (barKey === "radiation") {
+        valueEl.textContent = bar.value.toFixed(2);
+      } else if (barKey === "temperature") {
+        valueEl.textContent = bar.value.toFixed(1);
+      } else if (barKey === "pressure") {
+        valueEl.textContent = Math.round(bar.value);
+      } else {
+        valueEl.textContent = bar.value.toFixed(1);
+      }
+    }
+
+    // Update bar fill
+    const barEl = document.getElementById(`${barKey}Bar`);
+    if (barEl) {
+      let percentage;
+      if (barKey === "power" || barKey === "oxygen" || barKey === "humidity") {
+        percentage = bar.value;
+      } else if (barKey === "temperature") {
+        percentage = ((bar.value + 10) / 60) * 100;
+      } else if (barKey === "radiation") {
+        percentage = bar.value * 100;
+      } else if (barKey === "pressure") {
+        percentage = ((bar.value - 900) / 200) * 100;
+      }
+
+      barEl.style.width = `${Math.max(0, Math.min(100, percentage))}%`;
+
+      // Color based on range
+      if (bar.value >= range.min && bar.value <= range.max) {
+        barEl.style.backgroundColor = "#10B981"; // Green
+      } else if (
+        Math.abs(bar.value - bar.target) <
+        (range.max - range.min) * 0.5
+      ) {
+        barEl.style.backgroundColor = "#F59E0B"; // Yellow
+      } else {
+        barEl.style.backgroundColor = "#EF4444"; // Red
+      }
+    }
+
+    // Update target indicator
+    const targetEl = document.getElementById(`${barKey}Target`);
+    if (targetEl) {
+      let targetPercentage;
+      if (barKey === "power" || barKey === "oxygen" || barKey === "humidity") {
+        targetPercentage = bar.target;
+      } else if (barKey === "temperature") {
+        targetPercentage = ((bar.target + 10) / 60) * 100;
+      } else if (barKey === "radiation") {
+        targetPercentage = bar.target * 100;
+      } else if (barKey === "pressure") {
+        targetPercentage = ((bar.target - 900) / 200) * 100;
+      }
+
+      targetEl.style.left = `${Math.max(0, Math.min(100, targetPercentage))}%`;
+    }
+
+    // Update range indicator
+    const rangeEl = document.getElementById(`${barKey}Range`);
+    if (rangeEl) {
+      let minPercentage, maxPercentage;
+      if (barKey === "power" || barKey === "oxygen" || barKey === "humidity") {
+        minPercentage = range.min;
+        maxPercentage = range.max;
+      } else if (barKey === "temperature") {
+        minPercentage = ((range.min + 10) / 60) * 100;
+        maxPercentage = ((range.max + 10) / 60) * 100;
+      } else if (barKey === "radiation") {
+        minPercentage = range.min * 100;
+        maxPercentage = range.max * 100;
+      } else if (barKey === "pressure") {
+        minPercentage = ((range.min - 900) / 200) * 100;
+        maxPercentage = ((range.max - 900) / 200) * 100;
+      }
+
+      rangeEl.style.left = `${Math.max(0, Math.min(100, minPercentage))}%`;
+      rangeEl.style.width = `${Math.max(
+        0,
+        Math.min(100, maxPercentage - minPercentage)
+      )}%`;
+    }
+  });
 }
 
 function generateTaskParameters(category, taskKey) {
@@ -5980,4 +6836,965 @@ function clampParameterValues() {
 
 function startParameterDisplayUpdates() {
   safeSetInterval(() => updateStationParametersDisplay(), 2000);
+}
+
+// Challenge System Functions
+function initiateChallenge(targetPub, challengeType) {
+  if (!currentUser) {
+    addLog("ERROR: Must be logged in to initiate challenges", "error");
+    return;
+  }
+
+  // Check if we have enough points
+  if (currentUser.points < 5) {
+    addLog("ERROR: Need at least 5 points to initiate a challenge", "error");
+    return;
+  }
+
+  // Check cooldown
+  if (isOperatorOnCooldown(targetPub)) {
+    addLog("ERROR: Target operator is on cooldown", "error");
+    return;
+  }
+
+  // Get target operator info from multiple sources
+  let targetOperator = currentOperatorsData.find((op) => op.pub === targetPub);
+
+  // Check if target is offline and inform user
+  if (targetOperator && !targetOperator.isOnline) {
+    addLog(
+      `INFO: Challenging offline operator ${targetOperator.name} - easier target!`,
+      "info"
+    );
+  }
+
+  console.log("🔍 Debug - targetPub:", targetPub);
+  console.log("🔍 Debug - currentOperatorsData:", currentOperatorsData);
+  console.log("🔍 Debug - found targetOperator:", targetOperator);
+
+  // If not found in current data, try to get from GunDB
+  if (!targetOperator) {
+    console.log(
+      "🔍 Debug - Target not found in currentOperatorsData, trying GunDB..."
+    );
+    // Try to get from operators reference first
+    operatorsRef.get(targetPub).once((opData) => {
+      console.log("🔍 Debug - operatorsRef data:", opData);
+      if (opData && opData.name) {
+        // Also try to get profile data for level
+        gun
+          .get("users")
+          .get(targetPub)
+          .get("profile")
+          .once((profileData) => {
+            console.log("🔍 Debug - profile data:", profileData);
+            targetOperator = {
+              pub: targetPub,
+              name: opData.name,
+              level: profileData?.level || opData.level || 1,
+              isOnline:
+                opData.lastSeen && Date.now() - opData.lastSeen < 120000,
+              lastSeen: opData.lastSeen || Date.now(),
+            };
+            console.log(
+              "🔍 Debug - created targetOperator from operatorsRef:",
+              targetOperator
+            );
+            continueWithChallenge(targetOperator, challengeType);
+          });
+      } else {
+        console.log(
+          "🔍 Debug - No operatorsRef data, trying users collection..."
+        );
+        // Try to get from users collection as fallback
+        gun
+          .get("users")
+          .get(targetPub)
+          .once((userData) => {
+            console.log("🔍 Debug - users collection data:", userData);
+            if (userData && userData.alias) {
+              targetOperator = {
+                pub: targetPub,
+                name: userData.alias,
+                level: 1, // Default level
+                isOnline: false, // Assume offline if we can't determine
+                lastSeen: Date.now(),
+              };
+              console.log(
+                "🔍 Debug - created targetOperator from users collection:",
+                targetOperator
+              );
+              continueWithChallenge(targetOperator, challengeType);
+            } else {
+              console.log(
+                "🔍 Debug - No user data found, creating fallback targetOperator"
+              );
+              // Create a fallback targetOperator with minimal data
+              targetOperator = {
+                pub: targetPub,
+                name: "Unknown Target",
+                level: 1,
+                isOnline: false,
+                lastSeen: Date.now(),
+              };
+              continueWithChallenge(targetOperator, challengeType);
+            }
+          });
+      }
+    });
+    return;
+  }
+
+  continueWithChallenge(targetOperator, challengeType);
+}
+
+function continueWithChallenge(targetOperator, challengeType) {
+  // Calculate success probability
+  const successRate = calculateChallengeSuccess(targetOperator, challengeType);
+
+  // Debug: Check what data we have before creating challenge
+  console.log("🔍 Debug - currentUser:", currentUser);
+  console.log("🔍 Debug - targetOperator:", targetOperator);
+  console.log("🔍 Debug - user.is.pub:", user.is.pub);
+
+  // Create challenge with proper data and explicit fallbacks
+  const challenge = {
+    id: crypto.randomUUID(),
+    challenger: {
+      pub: user.is.pub,
+      alias: currentUser?.alias || "Unknown Challenger",
+      level: currentUser?.level || 1,
+    },
+    target: {
+      pub: targetOperator.pub,
+      alias: targetOperator?.name || targetOperator?.alias || "Unknown Target",
+      level: targetOperator?.level || 1,
+    },
+    type: challengeType,
+    successRate: successRate,
+    pointsAtRisk: challengeTypes[challengeType].pointsAtRisk,
+    timestamp: Date.now(),
+    status: "pending",
+    result: null,
+  };
+
+  // Debug log to verify challenge data
+  console.log("🎯 Challenge created:", {
+    challenger: challenge.challenger,
+    target: challenge.target,
+    type: challenge.type,
+  });
+
+  // Execute challenge immediately
+  executeChallenge(challenge);
+}
+
+function calculateChallengeSuccess(targetOperator, challengeType) {
+  let baseRate = challengeTypes[challengeType].successRate;
+
+  // Level difference factor
+  const levelDiff = currentUser.level - (targetOperator.level || 1);
+  baseRate += levelDiff * challengeSuccessFactors.levelDifference;
+
+  // Online status factor - offline targets are easier to steal from
+  if (targetOperator.isOnline) {
+    baseRate += challengeSuccessFactors.onlineStatus; // +15% if online (harder)
+  } else {
+    baseRate -= challengeSuccessFactors.onlineStatus; // -15% if offline (easier)
+  }
+
+  // Recent activity factor
+  const timeSinceLastSeen = Date.now() - targetOperator.lastSeen;
+  if (timeSinceLastSeen < 60000) {
+    // Active in last minute
+    baseRate += challengeSuccessFactors.recentActivity;
+  }
+
+  // Random factor
+  const randomFactor =
+    (Math.random() - 0.5) * 2 * challengeSuccessFactors.randomFactor;
+  baseRate += randomFactor;
+
+  // Clamp between 0.1 and 0.95
+  return Math.max(0.1, Math.min(0.95, baseRate));
+}
+
+function executeChallenge(challenge) {
+  const success = Math.random() < challenge.successRate;
+  challenge.result = success;
+  challenge.status = "completed";
+
+  if (success) {
+    // Challenge successful - steal points
+    const pointsStolen = Math.min(
+      challenge.pointsAtRisk || 5,
+      (challenge.target?.level || 1) * 2
+    );
+
+    // Update challenger points
+    user.get("profile").once((profile) => {
+      const newPoints = (profile.points || 0) + pointsStolen;
+      const newLevel = getLevelFromPoints(newPoints);
+      const newProfile = {
+        ...profile,
+        points: newPoints,
+        level: newLevel,
+        challengesWon: (profile.challengesWon || 0) + 1,
+      };
+      user.get("profile").put(newProfile);
+
+      // Update leaderboard
+      gun.get("leaderboard").get(currentUser.alias).put({
+        points: newPoints,
+        level: newLevel,
+      });
+
+      // Update local data
+      currentUser.points = newPoints;
+      currentUser.level = newLevel;
+
+      addLog(
+        `CHALLENGE SUCCESS! Stole ${pointsStolen} points from ${
+          challenge.target?.alias || "Unknown"
+        }`,
+        "success"
+      );
+    });
+
+    // Try to steal points from target (they might be offline)
+    gun
+      .get("users")
+      .get(challenge.target.pub)
+      .get("profile")
+      .once((targetProfile) => {
+        if (targetProfile) {
+          const newTargetPoints = Math.max(
+            0,
+            (targetProfile.points || 0) - pointsStolen
+          );
+          const newTargetLevel = getLevelFromPoints(newTargetPoints);
+          const newTargetProfile = {
+            ...targetProfile,
+            points: newTargetPoints,
+            level: newTargetLevel,
+            challengesLost: (targetProfile.challengesLost || 0) + 1,
+          };
+          gun
+            .get("users")
+            .get(challenge.target.pub)
+            .get("profile")
+            .put(newTargetProfile);
+
+          // Update target's leaderboard entry
+          gun.get("leaderboard").get(challenge.target.alias).put({
+            points: newTargetPoints,
+            level: newTargetLevel,
+          });
+        }
+      });
+  } else {
+    // Challenge failed
+    const pointsLost = Math.floor(challenge.pointsAtRisk / 2);
+
+    // Lose points for failed challenge
+    user.get("profile").once((profile) => {
+      const newPoints = Math.max(0, (profile.points || 0) - pointsLost);
+      const newLevel = getLevelFromPoints(newPoints);
+      const newProfile = {
+        ...profile,
+        points: newPoints,
+        level: newLevel,
+        challengesLost: (profile.challengesLost || 0) + 1,
+      };
+      user.get("profile").put(newProfile);
+
+      // Update leaderboard
+      gun.get("leaderboard").get(currentUser.alias).put({
+        points: newPoints,
+        level: newLevel,
+      });
+
+      // Update local data
+      currentUser.points = newPoints;
+      currentUser.level = newLevel;
+
+      addLog(
+        `CHALLENGE FAILED! Lost ${pointsLost} points to ${
+          challenge.target?.alias || "Unknown"
+        }`,
+        "error"
+      );
+    });
+  }
+
+  // Add to challenge history
+  challengeHistory.push(challenge);
+
+  // Store in GunDB
+  gun.get("challenges").get(challenge.id).put(challenge);
+
+  // Debug log to verify challenge was saved
+  console.log("💾 Challenge saved to GunDB:", {
+    id: challenge.id,
+    challenger: challenge.challenger,
+    target: challenge.target,
+    result: challenge.result,
+  });
+
+  // Additional debug: Check what's actually stored
+  setTimeout(() => {
+    gun
+      .get("challenges")
+      .get(challenge.id)
+      .once((storedChallenge) => {
+        console.log("🔍 Debug - Stored challenge retrieved:", storedChallenge);
+      });
+  }, 1000);
+
+  // Update UI
+  if (stats) updateStatsUI(stats);
+
+  // Show challenge result notification
+  showChallengeResult(challenge);
+
+  // Set cooldown
+  setOperatorCooldown(
+    challenge.target.pub,
+    challengeTypes[challenge.type].cooldown
+  );
+
+  // Update the active operators list immediately to show cooldown
+  updateActiveOperatorsList(currentOperatorsData);
+}
+
+function showChallengeResult(challenge) {
+  const resultText = challenge.result ? "SUCCESS" : "FAILED";
+  const resultClass = challenge.result ? "success" : "error";
+
+  // Calculate points properly with safe fallbacks
+  let pointsText = "0 points";
+  if (challenge.result) {
+    const pointsStolen = Math.min(
+      challenge.pointsAtRisk || 5,
+      (challenge.target?.level || 1) * 2
+    );
+    pointsText = `+${pointsStolen} points`;
+  } else {
+    const pointsLost = Math.floor((challenge.pointsAtRisk || 5) / 2);
+    pointsText = `-${pointsLost} points`;
+  }
+
+  // Get target name safely
+  const targetName = challenge.target?.alias || "Unknown";
+
+  addLog(
+    `CHALLENGE ${resultText}: ${
+      challenge.type || "CHALLENGE"
+    } vs ${targetName} - ${pointsText}`,
+    resultClass
+  );
+
+  // Create visual notification
+  const notification = document.createElement("div");
+  notification.className = `challenge-notification ${resultClass}`;
+  notification.innerHTML = `
+    <div class="notification-header">
+      <strong>${challenge.type || "CHALLENGE"} CHALLENGE ${resultText}</strong>
+    </div>
+    <div class="notification-details">
+      Target: ${targetName} | ${pointsText} | Success Rate: ${(
+    (challenge.successRate || 0.5) * 100
+  ).toFixed(1)}%
+    </div>
+  `;
+
+  document.body.appendChild(notification);
+
+  // Remove after 5 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.parentNode.removeChild(notification);
+    }
+  }, 5000);
+}
+
+function setOperatorCooldown(operatorPub, duration) {
+  operatorCooldowns.set(operatorPub, Date.now() + duration);
+  // Save to GunDB immediately
+  saveCooldownsToGunDB();
+}
+
+function isOperatorOnCooldown(operatorPub) {
+  const cooldownEnd = operatorCooldowns.get(operatorPub);
+  if (!cooldownEnd) return false;
+
+  if (Date.now() > cooldownEnd) {
+    operatorCooldowns.delete(operatorPub);
+    // Save to GunDB when cooldown expires
+    saveCooldownsToGunDB();
+    return false;
+  }
+
+  return true;
+}
+
+// Challenge Events Panel
+function showChallengeEvents() {
+  const overlay = document.createElement("div");
+  overlay.className = "overlay";
+  overlay.innerHTML = `
+    <div class="challenge-events-modal">
+      <h2>&gt; CHALLENGE EVENTS</h2>
+      
+      <div class="challenge-tabs">
+        <button class="tab-btn active" data-tab="recent">RECENT EVENTS</button>
+        <button class="tab-btn" data-tab="history">CHALLENGE HISTORY</button>
+
+        <button class="tab-btn" data-tab="stats">CHALLENGE STATS</button>
+      </div>
+      
+      <div class="challenge-content">
+        <div id="recentEvents" class="tab-content active">
+          <div class="events-list" id="recentEventsList">
+            Loading recent events...
+          </div>
+        </div>
+        
+        <div id="challengeHistory" class="tab-content">
+          <div class="events-list" id="challengeHistoryList">
+            Loading challenge history...
+          </div>
+        </div>
+        
+        <div id="challengeStats" class="tab-content">
+          <div class="stats-grid" id="challengeStatsGrid">
+            Loading challenge statistics...
+          </div>
+        </div>
+        
+
+      </div>
+      
+      <div class="challenge-controls">
+        <button id="refreshEventsBtn" class="terminal-button">REFRESH</button>
+        <button id="clearHistoryBtn" class="terminal-button">CLEAR HISTORY</button>
+
+        <button id="fixCorruptedBtn" class="terminal-button">FIX CORRUPTED</button>
+      </div>
+      
+      <div class="button" id="closeChallengeEvents">CLOSE</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  // Initialize challenge events
+  loadChallengeEvents();
+  loadChallengeHistory();
+  loadChallengeStats();
+
+  // Update operators list to ensure cooldown status is current
+  updateActiveOperatorsList(currentOperatorsData);
+
+  // Add tab handlers
+  const tabBtns = overlay.querySelectorAll(".tab-btn");
+  tabBtns.forEach((btn) => {
+    if (btn) {
+      // Check if button exists
+      btn.onclick = () => {
+        // Remove active class from all tab buttons
+        tabBtns.forEach((b) => {
+          if (b && b.classList) {
+            b.classList.remove("active");
+          }
+        });
+
+        // Add active class to clicked button
+        if (btn && btn.classList) {
+          btn.classList.add("active");
+        }
+
+        // Remove active class from all tab contents
+        const tabContents = overlay.querySelectorAll(".tab-content");
+        tabContents.forEach((content) => {
+          if (content && content.classList) {
+            content.classList.remove("active");
+          }
+        });
+
+        // Add active class to target tab content
+        const targetTab = btn.dataset.tab;
+        if (targetTab) {
+          const targetContent = overlay.querySelector(`#${targetTab}`);
+          if (targetContent && targetContent.classList) {
+            targetContent.classList.add("active");
+          }
+
+          // Update operators list when switching tabs to ensure cooldown status is current
+          updateActiveOperatorsList(currentOperatorsData);
+        }
+      };
+    }
+  });
+
+  // Add button handlers with safety checks
+  const refreshBtn = overlay.querySelector("#refreshEventsBtn");
+  if (refreshBtn) {
+    refreshBtn.onclick = () => {
+      loadChallengeEvents();
+      loadChallengeHistory();
+      loadChallengeStats();
+      updateActiveOperatorsList(currentOperatorsData); // Update operators list too
+      addLog("Challenge events refreshed", "info");
+    };
+  }
+
+  const clearBtn = overlay.querySelector("#clearHistoryBtn");
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      if (confirm("Clear all challenge history? This cannot be undone.")) {
+        challengeHistory = [];
+        gun.get("challenges").map().put(null);
+        loadChallengeHistory();
+        addLog("Challenge history cleared", "warning");
+      }
+    };
+  }
+
+  const fixBtn = overlay.querySelector("#fixCorruptedBtn");
+  if (fixBtn) {
+    fixBtn.onclick = () => {
+      fixCorruptedChallenges();
+      addLog("Attempting to fix corrupted challenges...", "info");
+    };
+  }
+
+  const closeBtn = overlay.querySelector("#closeChallengeEvents");
+  if (closeBtn) {
+    closeBtn.onclick = () => overlay.remove();
+  }
+}
+
+function loadChallengeEvents() {
+  const eventsList = document.getElementById("recentEventsList");
+  if (!eventsList) return;
+
+  // Load recent challenges from GunDB
+  const recentChallenges = [];
+  gun
+    .get("challenges")
+    .map()
+    .once((challenge, id) => {
+      console.log("🔍 Debug - Retrieved challenge from GunDB:", {
+        id,
+        challenge,
+      });
+
+      // Ensure challenge has proper structure
+      if (challenge && typeof challenge === "object") {
+        // Check if challenger and target are GunDB references that need to be resolved
+        const resolveChallenger = (callback) => {
+          if (challenge.challenger && challenge.challenger["#"]) {
+            // This is a GunDB reference, resolve it
+            gun
+              .get("challenges")
+              .get(id)
+              .get("challenger")
+              .once((challengerData) => {
+                callback(
+                  challengerData || {
+                    alias: "Unknown",
+                    pub: "unknown",
+                    level: 1,
+                  }
+                );
+              });
+          } else {
+            // This is already resolved data
+            callback(
+              challenge.challenger || {
+                alias: "Unknown",
+                pub: "unknown",
+                level: 1,
+              }
+            );
+          }
+        };
+
+        const resolveTarget = (callback) => {
+          if (challenge.target && challenge.target["#"]) {
+            // This is a GunDB reference, resolve it
+            gun
+              .get("challenges")
+              .get(id)
+              .get("target")
+              .once((targetData) => {
+                callback(
+                  targetData || { alias: "Unknown", pub: "unknown", level: 1 }
+                );
+              });
+          } else {
+            // This is already resolved data
+            callback(
+              challenge.target || { alias: "Unknown", pub: "unknown", level: 1 }
+            );
+          }
+        };
+
+        // Resolve both challenger and target, then create the safe challenge
+        resolveChallenger((challengerData) => {
+          resolveTarget((targetData) => {
+            const safeChallenge = {
+              id: challenge.id || id,
+              challenger: {
+                pub: challengerData.pub || "unknown",
+                alias: challengerData.alias || "Unknown",
+                level: challengerData.level || 1,
+              },
+              target: {
+                pub: targetData.pub || "unknown",
+                alias: targetData.alias || "Unknown",
+                level: targetData.level || 1,
+              },
+              type: challenge.type || "CHALLENGE",
+              successRate: challenge.successRate || 0.5,
+              pointsAtRisk: challenge.pointsAtRisk || 5,
+              timestamp: challenge.timestamp || Date.now(),
+              status: challenge.status || "completed",
+              result: challenge.result || false,
+            };
+
+            console.log("🔍 Debug - Safe challenge object:", safeChallenge);
+
+            if (safeChallenge.status === "completed") {
+              const timeDiff = Date.now() - safeChallenge.timestamp;
+              if (timeDiff < 3600000) {
+                // Last hour
+                recentChallenges.push(safeChallenge);
+                console.log(
+                  "🔍 Debug - Added to recentChallenges:",
+                  safeChallenge
+                );
+              }
+            }
+          });
+        });
+      }
+    });
+
+  // Clean up corrupted challenges
+  gun
+    .get("challenges")
+    .map()
+    .once((challenge, id) => {
+      if (
+        challenge &&
+        (challenge.challenger?.alias === "undefined" ||
+          challenge.target?.alias === "undefined")
+      ) {
+        console.log("🧹 Cleaning up corrupted challenge:", id);
+        gun.get("challenges").get(id).put(null);
+      }
+    });
+
+  setTimeout(() => {
+    if (recentChallenges.length === 0) {
+      eventsList.innerHTML =
+        '<div class="no-events">No recent challenge events</div>';
+      return;
+    }
+
+    // Sort by timestamp, newest first
+    recentChallenges.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Try to fix corrupted challenge data
+    const fixedChallenges = recentChallenges.map((challenge) => {
+      // If challenge has undefined aliases, try to fix them
+      if (
+        challenge.challenger?.alias === "undefined" ||
+        challenge.target?.alias === "undefined"
+      ) {
+        console.log("🔧 Attempting to fix corrupted challenge:", challenge.id);
+
+        // Try to get operator names from pub keys
+        if (challenge.challenger?.pub) {
+          gun
+            .get("users")
+            .get(challenge.challenger.pub)
+            .once((userData) => {
+              if (userData && userData.alias) {
+                challenge.challenger.alias = userData.alias;
+                // Update the challenge in GunDB
+                gun.get("challenges").get(challenge.id).put(challenge);
+              }
+            });
+        }
+
+        if (challenge.target?.pub) {
+          gun
+            .get("users")
+            .get(challenge.target.pub)
+            .once((userData) => {
+              if (userData && userData.alias) {
+                challenge.target.alias = userData.alias;
+                // Update the challenge in GunDB
+                gun.get("challenges").get(challenge.id).put(challenge);
+              }
+            });
+        }
+      }
+
+      return challenge;
+    });
+
+    console.log(
+      "🔍 Debug - fixedChallenges before rendering:",
+      fixedChallenges
+    );
+
+    const eventsHTML = fixedChallenges
+      .slice(0, 10)
+      .map((challenge) => {
+        console.log("🔍 Debug - Rendering challenge:", challenge);
+        const time = new Date(challenge.timestamp).toLocaleTimeString();
+        const resultClass = challenge.result ? "success" : "failed";
+        const resultText = challenge.result ? "SUCCESS" : "FAILED";
+        // Calculate points properly with safe fallbacks
+        let pointsText = "0";
+        if (challenge.result) {
+          const pointsStolen = Math.min(
+            challenge.pointsAtRisk || 5,
+            (challenge.target?.level || 1) * 2
+          );
+          pointsText = `+${pointsStolen}`;
+        } else {
+          const pointsLost = Math.floor((challenge.pointsAtRisk || 5) / 2);
+          pointsText = `-${pointsLost}`;
+        }
+
+        // Get operator names safely
+        const challengerName = challenge.challenger?.alias || "Unknown";
+        const targetName = challenge.target?.alias || "Unknown";
+
+        console.log("🔍 Debug - Names for rendering:", {
+          challengerName,
+          targetName,
+        });
+
+        return `
+        <div class="event-item ${resultClass}">
+          <div class="event-time">${time}</div>
+          <div class="event-details">
+            <div class="event-challengers">
+              <span class="challenger">${challengerName}</span>
+              <span class="vs">⚔️</span>
+              <span class="target">${targetName}</span>
+            </div>
+            <div class="event-type">${challenge.type || "CHALLENGE"}</div>
+            <div class="event-result">${resultText} (${pointsText} points)</div>
+          </div>
+        </div>
+      `;
+      })
+      .join("");
+
+    eventsList.innerHTML = eventsHTML;
+  }, 1000);
+}
+
+function loadChallengeHistory() {
+  const historyList = document.getElementById("challengeHistoryList");
+  if (!historyList) return;
+
+  // Load all challenges from GunDB
+  const allChallenges = [];
+  gun
+    .get("challenges")
+    .map()
+    .once((challenge, id) => {
+      if (challenge && challenge.status === "completed") {
+        allChallenges.push(challenge);
+      }
+    });
+
+  setTimeout(() => {
+    if (allChallenges.length === 0) {
+      historyList.innerHTML =
+        '<div class="no-events">No challenge history found</div>';
+      return;
+    }
+
+    // Sort by timestamp, newest first
+    allChallenges.sort((a, b) => b.timestamp - a.timestamp);
+
+    const historyHTML = allChallenges
+      .slice(0, 20)
+      .map((challenge) => {
+        const date = new Date(challenge.timestamp).toLocaleString();
+        const resultClass = challenge.result ? "success" : "failed";
+        const resultText = challenge.result ? "SUCCESS" : "FAILED";
+        // Calculate points properly with safe fallbacks
+        let pointsText = "0";
+        if (challenge.result) {
+          const pointsStolen = Math.min(
+            challenge.pointsAtRisk || 5,
+            (challenge.target?.level || 1) * 2
+          );
+          pointsText = `+${pointsStolen}`;
+        } else {
+          const pointsLost = Math.floor((challenge.pointsAtRisk || 5) / 2);
+          pointsText = `-${pointsLost}`;
+        }
+
+        // Get operator names safely
+        const challengerName = challenge.challenger?.alias || "Unknown";
+        const targetName = challenge.target?.alias || "Unknown";
+
+        return `
+        <div class="event-item ${resultClass}">
+          <div class="event-time">${date}</div>
+          <div class="event-details">
+            <div class="event-challengers">
+              <span class="challenger">${challengerName}</span>
+              <span class="vs">⚔️</span>
+              <span class="target">${targetName}</span>
+            </div>
+            <div class="event-type">${challenge.type || "CHALLENGE"}</div>
+            <div class="event-result">${resultText} (${pointsText} points)</div>
+          </div>
+        </div>
+      `;
+      })
+      .join("");
+
+    historyList.innerHTML = historyHTML;
+  }, 1000);
+}
+
+function loadChallengeStats() {
+  const statsGrid = document.getElementById("challengeStatsGrid");
+  if (!statsGrid) return;
+
+  // Calculate stats from challenge history
+  user.get("profile").once((profile) => {
+    const challengesWon = profile.challengesWon || 0;
+    const challengesLost = profile.challengesLost || 0;
+    const totalChallenges = challengesWon + challengesLost;
+    const winRate =
+      totalChallenges > 0
+        ? ((challengesWon / totalChallenges) * 100).toFixed(1)
+        : 0;
+
+    statsGrid.innerHTML = `
+      <div class="stat-item">
+        <div class="stat-label">TOTAL CHALLENGES</div>
+        <div class="stat-value">${totalChallenges}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">CHALLENGES WON</div>
+        <div class="stat-value success">${challengesWon}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">CHALLENGES LOST</div>
+        <div class="stat-value error">${challengesLost}</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">WIN RATE</div>
+        <div class="stat-value">${winRate}%</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">FAVORITE TARGET</div>
+        <div class="stat-value" id="favoriteTarget">Calculating...</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">MOST CHALLENGED BY</div>
+        <div class="stat-value" id="mostChallengedBy">Calculating...</div>
+      </div>
+    `;
+
+    // Calculate favorite target and most challenged by
+    calculateAdvancedStats();
+  });
+}
+
+function calculateAdvancedStats() {
+  // This would analyze challenge history to find patterns
+  // For now, we'll show placeholder data
+  const favoriteTarget = document.getElementById("favoriteTarget");
+  const mostChallengedBy = document.getElementById("mostChallengedBy");
+
+  if (favoriteTarget) favoriteTarget.textContent = "None yet";
+  if (mostChallengedBy) mostChallengedBy.textContent = "None yet";
+}
+
+function formatTimeAgo(timestamp) {
+  const diff = Date.now() - timestamp;
+  if (diff < 60000) return "Just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+  return `${Math.floor(diff / 86400000)}d ago`;
+}
+
+function fixCorruptedChallenges() {
+  console.log("🔧 Starting corrupted challenge fix...");
+
+  gun
+    .get("challenges")
+    .map()
+    .once((challenge, id) => {
+      if (challenge && challenge.status === "completed") {
+        let needsUpdate = false;
+
+        // Check if challenger alias is corrupted
+        if (
+          challenge.challenger?.alias === "undefined" ||
+          !challenge.challenger?.alias
+        ) {
+          console.log("🔧 Fixing challenger alias for challenge:", id);
+          if (challenge.challenger?.pub) {
+            gun
+              .get("users")
+              .get(challenge.challenger.pub)
+              .once((userData) => {
+                if (userData && userData.alias) {
+                  challenge.challenger.alias = userData.alias;
+                  needsUpdate = true;
+                  gun.get("challenges").get(id).put(challenge);
+                  console.log("✅ Fixed challenger alias:", userData.alias);
+                }
+              });
+          }
+        }
+
+        // Check if target alias is corrupted
+        if (
+          challenge.target?.alias === "undefined" ||
+          !challenge.target?.alias
+        ) {
+          console.log("🔧 Fixing target alias for challenge:", id);
+          if (challenge.target?.pub) {
+            gun
+              .get("users")
+              .get(challenge.target.pub)
+              .once((userData) => {
+                if (userData && userData.alias) {
+                  challenge.target.alias = userData.alias;
+                  needsUpdate = true;
+                  gun.get("challenges").get(id).put(challenge);
+                  console.log("✅ Fixed target alias:", userData.alias);
+                }
+              });
+          }
+        }
+
+        if (needsUpdate) {
+          addLog(`Fixed corrupted challenge: ${id}`, "success");
+        }
+      }
+    });
+
+  // Reload the display after a short delay
+  setTimeout(() => {
+    loadChallengeEvents();
+    loadChallengeHistory();
+  }, 2000);
 }
