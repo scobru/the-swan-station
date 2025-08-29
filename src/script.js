@@ -6324,9 +6324,9 @@ function stopCalibrationGame() {
       if (window.updateUserProfile) {
         window.updateUserProfile();
       }
-      
+
       // Force profile modal update if it's open
-      const profileModal = document.querySelector('.profile-modal');
+      const profileModal = document.querySelector(".profile-modal");
       if (profileModal) {
         // Trigger the profile update function to refresh the modal
         if (window.updateProfile) {
@@ -6338,13 +6338,13 @@ function stopCalibrationGame() {
         `🔧 Calibration session ended. Final score: ${calibrationScore} | +${pointsToAward} points awarded!`,
         "success"
       );
-      
+
       // Debug: Log profile update
       console.log("🔧 Calibration completed, profile updated:", {
         calibrationSessions: updatedProfile.calibrationSessions,
         totalCalibrationScore: updatedProfile.totalCalibrationScore,
         bestCalibrationScore: updatedProfile.bestCalibrationScore,
-        lastCalibrationScore: updatedProfile.lastCalibrationScore
+        lastCalibrationScore: updatedProfile.lastCalibrationScore,
       });
     });
   } else {
