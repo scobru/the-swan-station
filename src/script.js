@@ -774,7 +774,7 @@ function startApp(alias) {
         if (profile) {
           currentUser.points = profile.points;
           currentUser.level = getLevelFromPoints(profile.points);
-          if (stats) updateStatsUI(stats);
+          updateStatsUI();
         }
       } else {
         // Still update the data but don't log or update UI as frequently
@@ -1726,6 +1726,18 @@ function showProfile() {
                             <div class="stat-value" id="profileTasks">0</div>
                         </div>
                         <div class="stat-item">
+                            <div class="stat-label">CALIBRATION SESSIONS</div>
+                            <div class="stat-value" id="profileCalibrationSessions">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">TOTAL CALIBRATION SCORE</div>
+                            <div class="stat-value" id="profileTotalCalibrationScore">0</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-label">BEST CALIBRATION SCORE</div>
+                            <div class="stat-value" id="profileBestCalibrationScore">0</div>
+                        </div>
+                        <div class="stat-item">
                             <div class="stat-label">NETWORK CONTRIBUTION</div>
                             <div class="stat-value" id="profileContribution">0</div>
                         </div>
@@ -1778,6 +1790,15 @@ function showProfile() {
         const profileLocation = document.getElementById("profileLocation");
         const profileResets = document.getElementById("profileResets");
         const profileTasks = document.getElementById("profileTasks");
+        const profileCalibrationSessions = document.getElementById(
+          "profileCalibrationSessions"
+        );
+        const profileTotalCalibrationScore = document.getElementById(
+          "profileTotalCalibrationScore"
+        );
+        const profileBestCalibrationScore = document.getElementById(
+          "profileBestCalibrationScore"
+        );
         const profileContribution = document.getElementById(
           "profileContribution"
         );
@@ -1797,6 +1818,19 @@ function showProfile() {
         if (profileResets) profileResets.textContent = profile.resets || 0;
         if (profileTasks)
           profileTasks.textContent = profile.tasksCompleted || 0;
+        if (profileCalibrationSessions)
+          profileCalibrationSessions.textContent =
+            profile.calibrationSessions || 0;
+        if (profileTotalCalibrationScore)
+          profileTotalCalibrationScore.textContent =
+            profile.totalCalibrationScore || 0;
+        if (profileBestCalibrationScore) {
+          const bestScore = Math.max(
+            profile.lastCalibrationScore || 0,
+            profile.bestCalibrationScore || 0
+          );
+          profileBestCalibrationScore.textContent = bestScore;
+        }
         if (profileContribution)
           profileContribution.textContent = profile.networkContribution || 0;
         if (profileUptime) profileUptime.textContent = profile.uptime || "0h";
@@ -2205,7 +2239,9 @@ function showProfile() {
 
 // Aggiorna updateStatsUI per includere il pulsante del profilo e il sistema di task
 function updateStatsUI(newStats) {
-  stats = newStats;
+  if (newStats) {
+    stats = newStats;
+  }
   const pointsToNextLevel = currentUser
     ? levels[currentUser.level + 1] - currentUser.points
     : 0;
@@ -5430,7 +5466,7 @@ function loadCalibrationFromGunDB() {
 
 // Sync station parameters to calibration bars
 function syncStationToCalibration() {
-  if (!stationParameters || window.isSyncing) return;
+  if (!stationParameters || window.isSyncing || !calibrationBars) return;
 
   // Check if values actually changed to avoid unnecessary updates
   const newValues = {
@@ -5837,13 +5873,86 @@ function startCalibrationGame() {
   addLog("🔧 Manual calibration system activated", "info");
 }
 
+// Calculate points to award based on calibration score
+function calculateCalibrationPoints(score, profile = null) {
+  // Base points: 1 point per 100 score
+  let basePoints = Math.floor(score / 100);
+
+  // Bonus points for high scores
+  if (score >= 1000) basePoints += 5; // +5 bonus for 1000+ score
+  if (score >= 500) basePoints += 2; // +2 bonus for 500+ score
+  if (score >= 200) basePoints += 1; // +1 bonus for 200+ score
+
+  // Bonus for consecutive sessions (if profile data available)
+  if (profile && profile.lastCalibrationDate) {
+    const timeSinceLastSession = Date.now() - profile.lastCalibrationDate;
+    const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+    // Bonus for daily calibration (within 24 hours)
+    if (timeSinceLastSession < oneDay) {
+      basePoints += 1; // +1 bonus for daily calibration
+    }
+  }
+
+  // Minimum 1 point for any calibration session
+  return Math.max(1, basePoints);
+}
+
 // Stop calibration game
 function stopCalibrationGame() {
   calibrationGameActive = false;
-  addLog(
-    `🔧 Calibration session ended. Final score: ${calibrationScore}`,
-    "success"
-  );
+
+  // Calculate points to award based on calibration score
+  const pointsToAward = calculateCalibrationPoints(calibrationScore, profile);
+
+  // Award points to the user
+  if (pointsToAward > 0 && currentUser) {
+    const newPoints = currentUser.points + pointsToAward;
+    const newLevel = getLevelFromPoints(newPoints);
+
+    // Update user profile in GunDB
+    user.get("profile").once((profile) => {
+      const updatedProfile = {
+        ...profile,
+        points: newPoints,
+        level: newLevel,
+        calibrationSessions: (profile.calibrationSessions || 0) + 1,
+        totalCalibrationScore:
+          (profile.totalCalibrationScore || 0) + calibrationScore,
+        lastCalibrationScore: calibrationScore,
+        bestCalibrationScore: Math.max(
+          profile.bestCalibrationScore || 0,
+          calibrationScore
+        ),
+        lastCalibrationDate: Date.now(),
+      };
+
+      user.get("profile").put(updatedProfile);
+
+      // Update leaderboard
+      gun.get("leaderboard").get(currentUser.alias).put({
+        points: newPoints,
+        level: newLevel,
+      });
+
+      // Update local data
+      currentUser.points = newPoints;
+      currentUser.level = newLevel;
+
+      // Update UI
+      updateStatsUI();
+
+      addLog(
+        `🔧 Calibration session ended. Final score: ${calibrationScore} | +${pointsToAward} points awarded!`,
+        "success"
+      );
+    });
+  } else {
+    addLog(
+      `🔧 Calibration session ended. Final score: ${calibrationScore}`,
+      "success"
+    );
+  }
 }
 
 // Reset calibration game
