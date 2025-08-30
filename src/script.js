@@ -445,6 +445,19 @@ async function initializeShogun() {
       showAuthPrompt();
     });
 
+    // Expose core functions to timer module
+    window.core = {
+      safeSetInterval: safeSetInterval,
+      safeSetTimeout: safeSetTimeout,
+      timerRef: timerRef,
+      setTimerRef: (ref) => {
+        timerRef = ref;
+      },
+      gun: gun,
+      addLog: addLog,
+      user: user
+    };
+
     // Setup timer listener after initialization
     setupTimerListener();
 
@@ -992,6 +1005,42 @@ function startApp(alias) {
     });
   };
 
+  // Function to force sync current user points to leaderboard
+  window.syncPointsToLeaderboard = () => {
+    if (currentUser && currentUser.alias) {
+      console.log("🔄 Syncing current user points to leaderboard:", {
+        alias: currentUser.alias,
+        points: currentUser.points,
+        level: currentUser.level,
+      });
+
+      gun.get("leaderboard").get(currentUser.alias).put({
+        points: currentUser.points,
+        level: currentUser.level,
+      });
+
+      // Also update profile to ensure consistency
+      user.get("profile").once((profile) => {
+        if (profile) {
+          const updatedProfile = {
+            ...profile,
+            points: currentUser.points,
+            level: currentUser.level,
+          };
+          user.get("profile").put(updatedProfile);
+          console.log("🔄 Profile also synced with current user data");
+        }
+      });
+
+      // Also update the modular system if it exists
+      if (window.core && window.core.gun) {
+        window.core.gun.user().get("points").put(currentUser.points);
+        window.core.gun.user().get("level").put(currentUser.level);
+        console.log("🔄 Modular system also synced");
+      }
+    }
+  };
+
   // Function to debug profile data
   window.debugProfileData = () => {
     user.get("profile").once((profile) => {
@@ -1015,6 +1064,130 @@ function startApp(alias) {
     });
   };
 
+  // Debug function to check points synchronization
+  window.debugPointsSync = () => {
+    console.log("🔍 Points Synchronization Debug:");
+    console.log("Current User:", {
+      alias: currentUser?.alias,
+      points: currentUser?.points,
+      level: currentUser?.level,
+    });
+
+    if (currentUser?.alias) {
+      // Check leaderboard data
+      gun
+        .get("leaderboard")
+        .get(currentUser.alias)
+        .once((leaderboardData) => {
+          console.log("Leaderboard Data:", leaderboardData);
+
+          // Check profile data
+          user.get("profile").once((profile) => {
+            console.log("Profile Data:", profile);
+
+            const isSynced =
+              leaderboardData?.points === currentUser.points &&
+              profile?.points === currentUser.points;
+
+            console.log(
+              "Synchronization Status:",
+              isSynced ? "✅ SYNCED" : "❌ NOT SYNCED"
+            );
+
+            if (!isSynced) {
+              console.log("🔄 Forcing sync...");
+              window.syncPointsToLeaderboard();
+            }
+          });
+        });
+    }
+  };
+
+  // Unified function to update points across all systems
+  window.updateUserPoints = (
+    pointsToAdd,
+    reason = "points update",
+    calibrationData = null
+  ) => {
+    if (!currentUser) {
+      console.error("❌ Cannot update points: no current user");
+      return;
+    }
+
+    const oldPoints = currentUser.points || 0;
+    const newPoints = oldPoints + pointsToAdd;
+    const newLevel = getLevelFromPoints(newPoints);
+
+    console.log(
+      `🔄 Updating points: ${oldPoints} + ${pointsToAdd} = ${newPoints} (${reason})`
+    );
+
+    // Update local user data
+    currentUser.points = newPoints;
+    currentUser.level = newLevel;
+
+    // Update profile in GunDB
+    user.get("profile").once((profile) => {
+      let updatedProfile = {
+        ...profile,
+        points: newPoints,
+        level: newLevel,
+      };
+
+      // Add calibration data if provided
+      if (calibrationData) {
+        updatedProfile = {
+          ...updatedProfile,
+          calibrationSessions: (profile.calibrationSessions || 0) + 1,
+          totalCalibrationScore:
+            (profile.totalCalibrationScore || 0) + calibrationData.score,
+          lastCalibrationScore: calibrationData.score,
+          bestCalibrationScore: Math.max(
+            profile.bestCalibrationScore || 0,
+            calibrationData.score
+          ),
+          lastCalibrationDate: Date.now(),
+        };
+
+        // Update local calibration data
+        currentUser.calibrationSessions = updatedProfile.calibrationSessions;
+        currentUser.totalCalibrationScore =
+          updatedProfile.totalCalibrationScore;
+        currentUser.bestCalibrationScore = updatedProfile.bestCalibrationScore;
+        currentUser.lastCalibrationScore = updatedProfile.lastCalibrationScore;
+      }
+
+      user.get("profile").put(updatedProfile);
+      console.log("🔄 Profile updated in GunDB");
+    });
+
+    // Update leaderboard
+    gun.get("leaderboard").get(currentUser.alias).put({
+      points: newPoints,
+      level: newLevel,
+    });
+    console.log("🔄 Leaderboard updated");
+
+    // Update modular system if it exists
+    if (window.core && window.core.gun) {
+      window.core.gun.user().get("points").put(newPoints);
+      window.core.gun.user().get("level").put(newLevel);
+      console.log("🔄 Modular system updated");
+    }
+
+    // Update UI
+    if (stats) updateStatsUI(stats);
+
+    // Force profile UI update if profile modal is open
+    if (window.updateUserProfile) {
+      window.updateUserProfile();
+    }
+
+    console.log(
+      `✅ Points update complete: ${newPoints} points (Level ${newLevel})`
+    );
+  };
+
   // Setup menu toggle button in header
   const menuToggleBtn = document.getElementById("menuToggleBtn");
   if (menuToggleBtn) {
@@ -1034,6 +1207,13 @@ function startApp(alias) {
   const challengeCooldownInterval = safeSetInterval(() => {
     updateChallengeCooldownUI();
   }, 1000); // Update every second
+
+  // Periodic sync to ensure data consistency
+  const periodicSyncInterval = safeSetInterval(() => {
+    if (currentUser && currentUser.alias && window.syncPointsToLeaderboard) {
+      window.syncPointsToLeaderboard();
+    }
+  }, 30000); // Sync every 30 seconds
 
   // Show the main container and hide header
   const container = document.querySelector(".container");
@@ -1649,122 +1829,37 @@ function playClickSound() {
   }
 }
 
-// Function to update timer
+// Function to update timer - now using timer module
 function updateTimer(newValue, reason = "") {
-  console.log("⏰ updateTimer called:", {
-    newValue,
-    reason,
-    timerRef: !!timerRef,
-  });
-  if (timerRef) {
-    const timerData = {
-      value: newValue,
-      lastUpdate: Date.now(),
-      updatedBy: currentUser?.alias || "UNKNOWN",
-      reason: reason,
-    };
-    console.log("📤 Sending timer data to GunDB:", timerData);
-    timerRef.put(timerData, (ack) => {
-      if (ack.err) {
-        console.error("❌ Failed to update timer:", ack.err);
-      } else {
-        console.log("✅ Timer updated successfully to:", newValue);
-      }
-    });
+  if (window.timer && window.timer.updateTimer) {
+    window.timer.updateTimer(newValue, reason);
   } else {
-    console.error("❌ timerRef is null - cannot update timer");
-    addLog("ERROR: Timer system not initialized", "error");
-    // Attempt to reinitialize timer reference
-    if (gun && !timerRef) {
-      timerRef = gun.get("timer");
-      addLog("Attempting to reinitialize timer reference...", "info");
-    }
+    console.error("❌ Timer module not available");
+    addLog("ERROR: Timer module not initialized", "error");
   }
 }
 
-// Setup main timer listener to react to any change
+// Setup main timer listener to react to any change - now using timer module
 function setupTimerListener() {
-  console.log("🔧 Setting up main timer listener...");
-  if (timerRef) {
-    timerRef.on((data) => {
-      console.log("📨 Main timer listener received data:", data);
-      if (data && typeof data.value === "number") {
-        console.log("✅ Updating timer display to:", data.value);
-        document.title = data.value;
-        bigTimer.textContent = data.value;
-
-        let updateMessage = `Timer updated to: ${data.value}`;
-        if (data.updatedBy) updateMessage += ` by ${data.updatedBy}`;
-        if (data.reason) updateMessage += ` (${data.reason})`;
-        addLog(updateMessage);
-
-        updateInputState(data.value);
-
-        if (data.value <= 4) {
-          if (siren?.readyState >= 2) {
-            siren.volume = 0.5;
-            siren
-              .play()
-              .catch((error) => console.warn("Failed to play siren:", error));
-          }
-          addLog("WARNING: System failure imminent!", "warning");
-        }
-
-        if (data.value > 4) {
-          if (siren) {
-            siren.pause();
-            siren.currentTime = 0;
-          }
-          if (systemFailureActive) stopSystemFailureDisplay();
-        }
-      } else {
-        console.warn("⚠️ Invalid timer data received:", data);
-      }
-    });
+  if (window.timer && window.timer.setupTimerListener) {
+    window.timer.setupTimerListener();
   } else {
-    console.error("❌ timerRef is null - cannot setup timer listener");
+    console.error("❌ Timer module not available");
+    addLog("ERROR: Timer module not initialized", "error");
   }
 }
 
-// Function to update input state based on timer value
+// Function to update input state based on timer value - now using timer module
 function updateInputState(timerValue) {
-  const input = document.querySelector(".input");
-  const prompt = document.querySelector(".prompt");
-
-  if (timerValue <= 4) {
-    // Enable input in last 4 minutes
-    if (input) {
-      input.disabled = false;
-      input.placeholder = "Enter code sequence...";
-      input.style.opacity = "1";
-      input.style.color = "#00ff00";
-      input.style.borderColor = "#00ff00";
-      input.style.display = "block";
-    }
-    if (prompt) {
-      prompt.style.opacity = "1";
-      prompt.style.color = "#00ff00";
-      prompt.style.display = "block";
-    }
+  if (window.timer && window.timer.updateInputState) {
+    window.timer.updateInputState(timerValue);
   } else {
-    // Disable input when timer > 4
-    if (input) {
-      input.disabled = true;
-      input.placeholder = "Code input locked until last 4 minutes";
-      input.style.opacity = "0.5";
-      input.style.color = "#666";
-      input.style.borderColor = "#666";
-      input.style.display = "none";
-    }
-    if (prompt) {
-      prompt.style.opacity = "0.5";
-      prompt.style.color = "#666";
-      prompt.style.display = "none";
-    }
+    console.error("❌ Timer module not available");
+    addLog("ERROR: Timer module not initialized", "error");
   }
 }
 
-// Input handler
+// Input handler - now using timer module
 input.onkeydown = (event) => {
   if (!currentUser) {
     addLog("ERROR: Operator registration required", "error");
@@ -1779,28 +1874,18 @@ input.onkeydown = (event) => {
   if (event.key === "Enter") {
     input.value = input.value.trim();
 
-    // Check if input is allowed (only in last 4 minutes)
-    timerRef.once((timerData) => {
-      const currentTimer = timerData?.value || 108;
+    // Use timer module to process input
+    if (window.timer && window.timer.processTimerInput) {
+      const processed = window.timer.processTimerInput(input.value);
 
-      if (currentTimer > 4) {
-        addLog(
-          "WARNING: Code input only allowed in last 4 minutes of countdown",
-          "warning"
-        );
-        input.value = "";
-        return;
-      }
-
-      if (input.value === "4 8 15 16 23 42") {
-        console.log("🔢 CORRECT CODE SEQUENCE ENTERED - RESETTING TIMER");
-
+      if (processed && input.value === "4 8 15 16 23 42") {
         // Stop system failure display if active
         stopSystemFailureDisplay();
 
-        // Force timer reset to 108
-        console.log("⏰ Resetting timer to 108...");
-        updateTimer(108, "code_correct");
+        // Use the timer module's reset function
+        if (window.timer && window.timer.resetTimerWithStats) {
+          window.timer.resetTimerWithStats();
+        }
 
         // Increment successful resets stat
         statsRef.once((currentStats) => {
@@ -1939,56 +2024,24 @@ input.onkeydown = (event) => {
           });
         }
       }
-    });
+    } else {
+      // Fallback if timer module is not available
+      addLog("Timer module not available, using fallback", "warning");
+    }
+
+    // Clear input after processing
+    input.value = "";
   }
 };
 
-// Timer decrement function
+// Timer decrement function - now using timer module
 function decrementTimer() {
-  if (!timerRef) {
-    console.log("Timer reference lost, reinitializing...");
-    timerRef = gun.get("swan").get("timer");
+  if (window.timer && window.timer.decrementTimer) {
+    window.timer.decrementTimer();
+  } else {
+    console.error("❌ Timer module not available");
+    addLog("ERROR: Timer module not initialized", "error");
   }
-
-  timerRef.once((data) => {
-    if (!data || typeof data.value !== "number") {
-      console.log("Invalid timer data, resetting...");
-      updateTimer(108, "timer_reset");
-      return;
-    }
-
-    // Sync with server time
-    const now = Date.now();
-    if (data.lastUpdate) {
-      const minutesPassed = Math.floor((now - data.lastUpdate) / 60000);
-      if (minutesPassed > 1) {
-        const newValue = Math.max(1, data.value - minutesPassed);
-        updateTimer(newValue, "time_sync");
-        return;
-      }
-    }
-
-    // Normal decrement
-    if (data.value > 1) {
-      updateTimer(data.value - 1, "timer_tick");
-      if (tick?.readyState >= 2) {
-        tick.volume = 0.2;
-        tick
-          .play()
-          .catch((error) => console.warn("Failed to play tick sound:", error));
-      }
-    } else if (data.value <= 1 && data.value > 0) {
-      triggerSystemFailure();
-      if (tick?.readyState >= 2) {
-        tick.volume = 0.2;
-        tick
-          .play()
-          .catch((error) =>
-            console.warn("Failed to play tick sound for system failure:", error)
-          );
-      }
-    }
-  });
 }
 
 // Generate avatar from public key using Multiavatar
@@ -4919,6 +4972,15 @@ function showLeaderboard() {
   overlay.querySelector("#closeLeaderboard").onclick = () => overlay.remove();
 
   const leaderboard = [];
+
+  // Ensure current user's points are synced to leaderboard before reading
+  if (currentUser && currentUser.alias) {
+    gun.get("leaderboard").get(currentUser.alias).put({
+      points: currentUser.points,
+      level: currentUser.level,
+    });
+  }
+
   // Read from the new public leaderboard node
   gun
     .get("leaderboard")
@@ -5246,6 +5308,13 @@ function initializeChat() {
 function initializeSystem() {
   document.title = "AUTHENTICATING...";
 
+  // Initialize timer module first
+  if (window.timer && window.timer.initializeTimer) {
+    window.timer.initializeTimer();
+  } else {
+    console.error("❌ Timer module not available for initialization");
+  }
+
   // Add event listener for rules button
   document.addEventListener("DOMContentLoaded", () => {
     const rulesBtn = document.getElementById("rulesBtn");
@@ -5274,73 +5343,28 @@ function initializeSystem() {
     });
   }
 
-  // Initialize timer immediately, regardless of auth status
-  if (timerRef) {
-    timerRef.once((data) => {
-      if (!data || typeof data.value !== "number") {
-        console.log(
-          "Global timer not found. Waiting for first operator to set timer..."
-        );
-        // Don't auto-initialize - let operators control the timer
-        updateInputState(0); // Disable input until timer is set
+  // Initialize timer immediately, regardless of auth status - now using timer module
+  if (window.timer && window.timer.startTimer) {
+    // Wait a bit for the timer module to be fully initialized
+    setTimeout(() => {
+      if (window.timer && window.timer.startTimer) {
+        console.log("🚀 Starting timer from main script...");
+        window.timer.startTimer();
       } else {
-        // Initialize input state for existing timer
-        updateInputState(data.value);
+        console.error("❌ Timer module not available for timer start");
       }
-
-      // Start the global countdown immediately
-      if (decrementInterval) {
-        clearInterval(decrementInterval);
-        decrementInterval = null;
-      }
-      decrementInterval = safeSetInterval(decrementTimer, 60000);
-
-      // Sync timer with server time
-      const now = Date.now();
-      if (data && data.lastUpdate) {
-        const minutesPassed = Math.floor((now - data.lastUpdate) / 60000);
-        if (minutesPassed > 0) {
-          const newValue = Math.max(1, data.value - minutesPassed);
-          updateTimer(newValue, "time_sync");
-        }
-      }
-    });
-
-    // Timer display listener (secondary - for redundancy)
-    timerRef.on((data) => {
-      console.log("📨 Secondary timer listener received data:", data);
-      if (data && typeof data.value === "number") {
-        console.log(
-          "✅ Secondary timer listener updating display to:",
-          data.value
-        );
-        document.title = data.value;
-        bigTimer.textContent = data.value;
-
-        // Update input state based on timer value
-        updateInputState(data.value);
-
-        if (data.value <= 4) {
-          siren.play().catch(() => {});
-        } else {
-          siren.pause();
-          siren.currentTime = 0;
-          // Stop system failure display if timer is reset above 4
-          if (systemFailureActive) {
-            stopSystemFailureDisplay();
-          }
-        }
-      }
-    });
+    }, 2000);
+  } else {
+    console.error("❌ Timer module not available for timer start");
   }
 
-  // Aggiungi un controllo periodico del timer
-  safeSetInterval(() => {
-    if (!decrementInterval) {
-      console.log("Timer interval lost, restarting...");
-      decrementInterval = safeSetInterval(decrementTimer, 60000);
-    }
-  }, 30000);
+  // Timer health monitoring - now using timer module
+  if (window.timer && window.timer.checkTimerHealth) {
+    // The timer module handles its own health monitoring
+    console.log("✅ Timer health monitoring delegated to timer module");
+  } else {
+    console.error("❌ Timer module not available for health monitoring");
+  }
 }
 
 // Station Rules Function
@@ -5669,25 +5693,13 @@ window.playClickSound = playClickSound;
 // Start the application
 initializeShogun();
 
-// Timer health check function
+// Timer health check function - now using timer module
 function checkTimerHealth() {
-  if (timerRef) {
-    timerRef.once((data) => {
-      const now = Date.now();
-      if (
-        !data ||
-        typeof data.value !== "number" ||
-        !data.lastUpdate ||
-        now - data.lastUpdate > 120000
-      ) {
-        console.log("Timer health check failed - timer may be corrupted");
-        // Don't auto-reset timer - let operators handle it
-        addLog(
-          "WARNING: Timer system may be corrupted. Manual reset required.",
-          "warning"
-        );
-      }
-    });
+  if (window.timer && window.timer.checkTimerHealth) {
+    window.timer.checkTimerHealth();
+  } else {
+    console.error("❌ Timer module not available");
+    addLog("ERROR: Timer module not initialized", "error");
   }
 }
 
@@ -6911,106 +6923,121 @@ function stopCalibrationGame() {
 
   // Award points to the user
   if (pointsToAward > 0 && currentUser) {
-    const newPoints = currentUser.points + pointsToAward;
-    const newLevel = getLevelFromPoints(newPoints);
-
-    // Update user profile in GunDB
-    user.get("profile").once((profile) => {
-      const updatedProfile = {
-        ...profile,
-        points: newPoints,
-        level: newLevel,
-        calibrationSessions: (profile.calibrationSessions || 0) + 1,
-        totalCalibrationScore:
-          (profile.totalCalibrationScore || 0) + calibrationScore,
-        lastCalibrationScore: calibrationScore,
-        bestCalibrationScore: Math.max(
-          profile.bestCalibrationScore || 0,
-          calibrationScore
-        ),
-        lastCalibrationDate: Date.now(),
-      };
-
-      user.get("profile").put(updatedProfile);
-
-      // Update leaderboard
-      gun.get("leaderboard").get(currentUser.alias).put({
-        points: newPoints,
-        level: newLevel,
+    // Use unified points update function
+    if (window.updateUserPoints) {
+      window.updateUserPoints(pointsToAward, "calibration completion", {
+        score: calibrationScore,
       });
+    } else {
+      // Fallback to old method
+      const newPoints = currentUser.points + pointsToAward;
+      const newLevel = getLevelFromPoints(newPoints);
 
-      // Update local data
-      currentUser.points = newPoints;
-      currentUser.level = newLevel;
-      currentUser.calibrationSessions = updatedProfile.calibrationSessions;
-      currentUser.totalCalibrationScore = updatedProfile.totalCalibrationScore;
-      currentUser.bestCalibrationScore = updatedProfile.bestCalibrationScore;
-      currentUser.lastCalibrationScore = updatedProfile.lastCalibrationScore;
+      // Update user profile in GunDB
+      user.get("profile").once((profile) => {
+        const updatedProfile = {
+          ...profile,
+          points: newPoints,
+          level: newLevel,
+          calibrationSessions: (profile.calibrationSessions || 0) + 1,
+          totalCalibrationScore:
+            (profile.totalCalibrationScore || 0) + calibrationScore,
+          lastCalibrationScore: calibrationScore,
+          bestCalibrationScore: Math.max(
+            profile.bestCalibrationScore || 0,
+            calibrationScore
+          ),
+          lastCalibrationDate: Date.now(),
+        };
 
-      console.log(
-        "🔧 Calibration completion - Profile data saved:",
-        updatedProfile
-      );
-      console.log("🔧 Calibration completion - currentUser updated:", {
-        calibrationSessions: currentUser.calibrationSessions,
-        totalCalibrationScore: currentUser.totalCalibrationScore,
-        bestCalibrationScore: currentUser.bestCalibrationScore,
-        lastCalibrationScore: currentUser.lastCalibrationScore,
-      });
+        user.get("profile").put(updatedProfile);
 
-      console.log("🔧 Calibration completed - Updated currentUser:", {
-        calibrationSessions: currentUser.calibrationSessions,
-        totalCalibrationScore: currentUser.totalCalibrationScore,
-        bestCalibrationScore: currentUser.bestCalibrationScore,
-        lastCalibrationScore: currentUser.lastCalibrationScore,
-      });
+        // Update leaderboard
+        gun.get("leaderboard").get(currentUser.alias).put({
+          points: newPoints,
+          level: newLevel,
+        });
 
-      // Update UI
-      updateStatsUI();
+        // Update local data
+        currentUser.points = newPoints;
+        currentUser.level = newLevel;
+        currentUser.calibrationSessions = updatedProfile.calibrationSessions;
+        currentUser.totalCalibrationScore =
+          updatedProfile.totalCalibrationScore;
+        currentUser.bestCalibrationScore = updatedProfile.bestCalibrationScore;
+        currentUser.lastCalibrationScore = updatedProfile.lastCalibrationScore;
 
-      // Force profile UI update if profile modal is open
-      if (window.updateUserProfile) {
-        window.updateUserProfile();
-      }
-
-      // Force profile modal update if it's open
-      const profileModal = document.querySelector(".profile-modal");
-      if (profileModal) {
-        // Trigger the profile update function to refresh the modal
-        if (window.updateProfile) {
-          console.log("🔧 Profile modal is open, calling updateProfile()");
-          window.updateProfile();
+        // Force sync to leaderboard immediately
+        if (window.syncPointsToLeaderboard) {
+          window.syncPointsToLeaderboard();
         }
-      }
 
-      // Force calibration data sync to ensure consistency
-      if (window.syncCalibrationFromProfile) {
-        setTimeout(() => {
-          console.log("🔧 Post-calibration sync initiated");
-          // Set a flag to prevent profile listener from overwriting calibration data
-          window.calibrationJustCompleted = true;
-          window.syncCalibrationFromProfile();
-          // Clear the flag after a delay
+        console.log(
+          "🔧 Calibration completion - Profile data saved:",
+          updatedProfile
+        );
+
+        console.log("🔧 Calibration completion - currentUser updated:", {
+          calibrationSessions: currentUser.calibrationSessions,
+          totalCalibrationScore: currentUser.totalCalibrationScore,
+          bestCalibrationScore: currentUser.bestCalibrationScore,
+          lastCalibrationScore: currentUser.lastCalibrationScore,
+        });
+
+        console.log("🔧 Calibration completed - Updated currentUser:", {
+          calibrationSessions: currentUser.calibrationSessions,
+          totalCalibrationScore: currentUser.totalCalibrationScore,
+          bestCalibrationScore: currentUser.bestCalibrationScore,
+          lastCalibrationScore: currentUser.lastCalibrationScore,
+        });
+
+        // Update UI
+        updateStatsUI();
+
+        // Force profile UI update if profile modal is open
+        if (window.updateUserProfile) {
+          window.updateUserProfile();
+        }
+
+        // Force profile modal update if it's open
+        const profileModal = document.querySelector(".profile-modal");
+        if (profileModal) {
+          // Trigger the profile update function to refresh the modal
+          if (window.updateProfile) {
+            console.log("🔧 Profile modal is open, calling updateProfile()");
+            window.updateProfile();
+          }
+        }
+
+        // Force calibration data sync to ensure consistency
+        if (window.syncCalibrationFromProfile) {
           setTimeout(() => {
-            window.calibrationJustCompleted = false;
-            console.log("🔧 Calibration completion flag cleared");
-          }, 3000);
-        }, 1000);
-      }
+            console.log("🔧 Post-calibration sync initiated");
+            // Set a flag to prevent profile listener from overwriting calibration data
+            window.calibrationJustCompleted = true;
+            window.syncCalibrationFromProfile();
+            // Clear the flag after a delay
+            setTimeout(() => {
+              window.calibrationJustCompleted = false;
+              console.log("🔧 Calibration completion flag cleared");
+            }, 3000);
+          }, 1000);
+        }
 
-      addLog(
-        `🔧 Calibration session ended. Final score: ${calibrationScore} | +${pointsToAward} points awarded!`,
-        "success"
-      );
+        addLog(
+          `🔧 Calibration session ended. Final score: ${calibrationScore} | +${pointsToAward} points awarded!`,
+          "success"
+        );
 
-      // Debug: Log profile update
-      console.log("🔧 Calibration completed, profile updated:", {
-        calibrationSessions: updatedProfile.calibrationSessions,
-        totalCalibrationScore: updatedProfile.totalCalibrationScore,
-        bestCalibrationScore: updatedProfile.bestCalibrationScore,
-        lastCalibrationScore: updatedProfile.lastCalibrationScore,
+        // Debug: Log profile update
+        console.log("🔧 Calibration completed, profile updated:", {
+          calibrationSessions: updatedProfile.calibrationSessions,
+          totalCalibrationScore: updatedProfile.totalCalibrationScore,
+          bestCalibrationScore: updatedProfile.bestCalibrationScore,
+          lastCalibrationScore: updatedProfile.lastCalibrationScore,
+        });
       });
-    });
+    }
   } else {
     addLog(
       `🔧 Calibration session ended. Final score: ${calibrationScore}`,
@@ -7881,6 +7908,11 @@ function awardTaskPoints(points) {
     currentUser.points = newPoints;
     currentUser.level = newLevel;
 
+    // Force sync to leaderboard immediately
+    if (window.syncPointsToLeaderboard) {
+      window.syncPointsToLeaderboard();
+    }
+
     // Update UI immediately
     if (stats) updateStatsUI(stats);
 
@@ -8292,11 +8324,8 @@ function executeChallenge(challenge) {
   challenge.status = "completed";
 
   if (success) {
-    // Challenge successful - steal points using new rules
-    const pointsStolen = Math.min(
-      challenge.pointsAtRisk || pointRules.challengePoints,
-      (challenge.target?.level || 1) * 3 // Increased multiplier
-    );
+    // Challenge successful - award points based on challenge type
+    const pointsStolen = challenge.pointsAtRisk || pointRules.challengePoints;
 
     // Update challenger points and reputation
     user.get("profile").once((profile) => {
@@ -8329,6 +8358,11 @@ function executeChallenge(challenge) {
       currentUser.points = newPoints;
       currentUser.level = newLevel;
       currentUser.reputation = newReputation;
+
+      // Force sync to leaderboard immediately
+      if (window.syncPointsToLeaderboard) {
+        window.syncPointsToLeaderboard();
+      }
 
       addLog(
         `CHALLENGE SUCCESS! Stole ${pointsStolen} points from ${
@@ -8405,6 +8439,11 @@ function executeChallenge(challenge) {
       currentUser.level = newLevel;
       currentUser.reputation = newReputation;
 
+      // Force sync to leaderboard immediately
+      if (window.syncPointsToLeaderboard) {
+        window.syncPointsToLeaderboard();
+      }
+
       addLog(
         `CHALLENGE FAILED! Lost ${pointsLost} points to ${
           challenge.target?.alias || "Unknown"
@@ -8466,13 +8505,12 @@ function showChallengeResult(challenge) {
   // Calculate points properly with safe fallbacks
   let pointsText = "0 points";
   if (challenge.result) {
-    const pointsStolen = Math.min(
-      challenge.pointsAtRisk || 5,
-      (challenge.target?.level || 1) * 2
-    );
+    const pointsStolen = challenge.pointsAtRisk || pointRules.challengePoints;
     pointsText = `+${pointsStolen} points`;
   } else {
-    const pointsLost = Math.floor((challenge.pointsAtRisk || 5) / 2);
+    const pointsLost = Math.floor(
+      (challenge.pointsAtRisk || pointRules.challengePoints) / 2
+    );
     pointsText = `-${pointsLost} points`;
   }
 

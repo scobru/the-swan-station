@@ -1,6 +1,6 @@
 // Challenges module - Challenge system, events, and competition functionality
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   // Challenge system state
   let challengeCooldownActive = false;
@@ -15,20 +15,20 @@
       name: "Standard Challenge",
       reputationCost: 1,
       pointsReward: 10,
-      description: "A standard operator challenge"
+      description: "A standard operator challenge",
     },
     advanced: {
-      name: "Advanced Challenge", 
+      name: "Advanced Challenge",
       reputationCost: 3,
       pointsReward: 25,
-      description: "An advanced operator challenge"
+      description: "An advanced operator challenge",
     },
     elite: {
       name: "Elite Challenge",
       reputationCost: 5,
       pointsReward: 50,
-      description: "An elite operator challenge"
-    }
+      description: "An elite operator challenge",
+    },
   };
 
   // Reputation rules
@@ -36,26 +36,33 @@
     startingReputation: 10,
     maxReputation: 100,
     reputationGain: 2,
-    reputationLoss: 1
+    reputationLoss: 1,
   };
 
   // Initiate challenge
   function initiateChallenge(targetPub, challengeType = "standard") {
     const currentUser = window.core.user;
     if (!currentUser) {
-      window.ui.addLog("ERROR: Must be logged in to initiate challenges", "error");
+      window.ui.addLog(
+        "ERROR: Must be logged in to initiate challenges",
+        "error"
+      );
       return;
     }
 
     // Check if we have enough points
     if (currentUser.points < 5) {
-      window.ui.addLog("ERROR: Need at least 5 points to initiate a challenge", "error");
+      window.ui.addLog(
+        "ERROR: Need at least 5 points to initiate a challenge",
+        "error"
+      );
       return;
     }
 
     // Check if user has enough reputation
     const requiredReputation = challengeTypes[challengeType].reputationCost;
-    const currentReputation = currentUser.reputation || reputationRules.startingReputation;
+    const currentReputation =
+      currentUser.reputation || reputationRules.startingReputation;
 
     if (currentReputation < requiredReputation) {
       window.ui.addLog(
@@ -67,7 +74,9 @@
 
     // Check challenge cooldown
     if (challengeCooldownActive) {
-      const remaining = Math.ceil((challengeCooldownEndTime - Date.now()) / 1000);
+      const remaining = Math.ceil(
+        (challengeCooldownEndTime - Date.now()) / 1000
+      );
       window.ui.addLog(
         `ERROR: Challenge cooldown active. Wait ${remaining}s before next challenge.`,
         "error"
@@ -92,11 +101,11 @@
 
     // Get target operator info
     let targetOperator = null;
-    
+
     // Try to get from operators module
     if (window.operators) {
-      window.operators.getActiveOperators().then(operators => {
-        targetOperator = operators.find(op => op.pub === targetPub);
+      window.operators.getActiveOperators().then((operators) => {
+        targetOperator = operators.find((op) => op.pub === targetPub);
         continueWithChallenge(targetOperator, challengeType);
       });
     } else {
@@ -106,7 +115,7 @@
         name: "Unknown Operator",
         level: 1,
         isOnline: false,
-        lastSeen: Date.now()
+        lastSeen: Date.now(),
       };
       continueWithChallenge(targetOperator, challengeType);
     }
@@ -120,7 +129,7 @@
     }
 
     const currentUser = window.core.user;
-    
+
     // Check if target is offline and inform user
     if (targetOperator && !targetOperator.isOnline) {
       window.ui.addLog(
@@ -139,7 +148,7 @@
       status: "pending",
       createdAt: Date.now(),
       expiresAt: Date.now() + 300000, // 5 minutes
-      result: null
+      result: null,
     };
 
     // Set as pending challenge
@@ -173,7 +182,9 @@
             </div>
             <div class="detail-item">
               <span class="label">REWARD:</span>
-              <span class="value">${challengeTypes[challenge.type].pointsReward} POINTS</span>
+              <span class="value">${
+                challengeTypes[challenge.type].pointsReward
+              } POINTS</span>
             </div>
           </div>
           
@@ -222,7 +233,7 @@
 
     // Calculate challenge success
     const success = calculateChallengeSuccess(challenge);
-    
+
     // Update challenge result
     challenge.result = success ? "victory" : "defeat";
     challenge.completedAt = Date.now();
@@ -230,36 +241,52 @@
 
     // Apply results
     if (success) {
-      // Award points
+      // Award points using unified function
       const pointsReward = challengeTypes[challenge.type].pointsReward;
-      currentUser.points = (currentUser.points || 0) + pointsReward;
-      
+
+      if (window.updateUserPoints) {
+        window.updateUserPoints(pointsReward, "challenge victory");
+      } else {
+        // Fallback to old method
+        currentUser.points = (currentUser.points || 0) + pointsReward;
+        if (window.core.gun) {
+          window.core.gun.user().get("points").put(currentUser.points);
+        }
+      }
+
       // Update reputation
       currentUser.reputation = Math.min(
-        (currentUser.reputation || reputationRules.startingReputation) + reputationRules.reputationGain,
+        (currentUser.reputation || reputationRules.startingReputation) +
+          reputationRules.reputationGain,
         reputationRules.maxReputation
       );
 
-      // Update GunDB
+      // Update reputation in GunDB
       if (window.core.gun) {
-        window.core.gun.user().get('points').put(currentUser.points);
-        window.core.gun.user().get('reputation').put(currentUser.reputation);
+        window.core.gun.user().get("reputation").put(currentUser.reputation);
       }
 
-      window.ui.addLog(`Challenge victory! +${pointsReward} points, +${reputationRules.reputationGain} reputation`, "success");
+      window.ui.addLog(
+        `Challenge victory! +${pointsReward} points, +${reputationRules.reputationGain} reputation`,
+        "success"
+      );
     } else {
       // Lose reputation
       currentUser.reputation = Math.max(
-        (currentUser.reputation || reputationRules.startingReputation) - reputationRules.reputationLoss,
+        (currentUser.reputation || reputationRules.startingReputation) -
+          reputationRules.reputationLoss,
         0
       );
 
       // Update GunDB
       if (window.core.gun) {
-        window.core.gun.user().get('reputation').put(currentUser.reputation);
+        window.core.gun.user().get("reputation").put(currentUser.reputation);
       }
 
-      window.ui.addLog(`Challenge defeat! -${reputationRules.reputationLoss} reputation`, "error");
+      window.ui.addLog(
+        `Challenge defeat! -${reputationRules.reputationLoss} reputation`,
+        "error"
+      );
     }
 
     // Add to history
@@ -282,7 +309,7 @@
 
     // Base success rate based on challenge type
     let baseSuccessRate = 0.5; // 50% for standard
-    
+
     switch (challenge.type) {
       case "advanced":
         baseSuccessRate = 0.4; // 40% for advanced
@@ -295,19 +322,23 @@
     // Factor in user level vs target level
     const userLevel = currentUser.level || 1;
     const targetLevel = 1; // Default target level
-    
+
     const levelFactor = Math.max(0.1, Math.min(2.0, userLevel / targetLevel));
-    
+
     // Factor in reputation
-    const reputation = currentUser.reputation || reputationRules.startingReputation;
-    const reputationFactor = Math.max(0.5, Math.min(1.5, reputation / reputationRules.maxReputation));
-    
+    const reputation =
+      currentUser.reputation || reputationRules.startingReputation;
+    const reputationFactor = Math.max(
+      0.5,
+      Math.min(1.5, reputation / reputationRules.maxReputation)
+    );
+
     // Random factor
     const randomFactor = Math.random();
-    
+
     // Calculate final success rate
     const successRate = baseSuccessRate * levelFactor * reputationFactor;
-    
+
     return randomFactor < successRate;
   }
 
@@ -339,13 +370,19 @@
             </div>
             <div class="detail-item">
               <span class="label">RESULT:</span>
-              <span class="value ${challenge.result}">${challenge.result.toUpperCase()}</span>
+              <span class="value ${
+                challenge.result
+              }">${challenge.result.toUpperCase()}</span>
             </div>
-            ${challenge.result === "victory" ? 
-              `<div class="detail-item">
+            ${
+              challenge.result === "victory"
+                ? `<div class="detail-item">
                 <span class="label">REWARD:</span>
-                <span class="value">+${challengeTypes[challenge.type].pointsReward} POINTS</span>
-              </div>` : ""
+                <span class="value">+${
+                  challengeTypes[challenge.type].pointsReward
+                } POINTS</span>
+              </div>`
+                : ""
             }
           </div>
         </div>
@@ -358,7 +395,9 @@
     // Add event listener
     const closeBtn = overlay.querySelector("#closeResult");
     if (closeBtn) {
-      window.core.safeAddEventListener(closeBtn, "click", () => overlay.remove());
+      window.core.safeAddEventListener(closeBtn, "click", () =>
+        overlay.remove()
+      );
     }
 
     // Auto-close after 5 seconds
@@ -384,9 +423,11 @@
       const remaining = Math.max(0, challenge.expiresAt - Date.now());
       const minutes = Math.floor(remaining / 60000);
       const seconds = Math.floor((remaining % 60000) / 1000);
-      
-      timerElement.textContent = `Time remaining: ${minutes}:${seconds.toString().padStart(2, '0')}`;
-      
+
+      timerElement.textContent = `Time remaining: ${minutes}:${seconds
+        .toString()
+        .padStart(2, "0")}`;
+
       if (remaining <= 0) {
         // Challenge expired
         cancelChallenge();
@@ -397,7 +438,7 @@
 
     updateTimer();
     const timerInterval = window.core.safeSetInterval(updateTimer, 1000);
-    
+
     // Store interval for cleanup
     if (overlay) {
       overlay.challengeTimer = timerInterval;
@@ -505,7 +546,9 @@
     }
 
     if (closeBtn) {
-      window.core.safeAddEventListener(closeBtn, "click", () => overlay.remove());
+      window.core.safeAddEventListener(closeBtn, "click", () =>
+        overlay.remove()
+      );
     }
   }
 
@@ -516,27 +559,32 @@
 
     // Get recent events (last 10)
     const recentEvents = challengeHistory.slice(-10).reverse();
-    
+
     if (recentEvents.length === 0) {
-      eventsList.innerHTML = '<div class="no-events">No recent challenge events</div>';
+      eventsList.innerHTML =
+        '<div class="no-events">No recent challenge events</div>';
       return;
     }
 
     eventsList.innerHTML = "";
-    recentEvents.forEach(event => {
+    recentEvents.forEach((event) => {
       const eventElement = document.createElement("div");
       eventElement.className = `event-item ${event.result}`;
       eventElement.innerHTML = `
         <div class="event-header">
           <span class="event-type">${challengeTypes[event.type].name}</span>
-          <span class="event-result ${event.result}">${event.result.toUpperCase()}</span>
+          <span class="event-result ${
+            event.result
+          }">${event.result.toUpperCase()}</span>
         </div>
         <div class="event-details">
           <span class="challenger">${event.initiator}</span>
           <span class="vs">vs</span>
           <span class="target">${event.target}</span>
         </div>
-        <div class="event-time">${new Date(event.createdAt).toLocaleString()}</div>
+        <div class="event-time">${new Date(
+          event.createdAt
+        ).toLocaleString()}</div>
       `;
       eventsList.appendChild(eventElement);
     });
@@ -548,28 +596,36 @@
     if (!historyList) return;
 
     if (challengeHistory.length === 0) {
-      historyList.innerHTML = '<div class="no-history">No challenge history</div>';
+      historyList.innerHTML =
+        '<div class="no-history">No challenge history</div>';
       return;
     }
 
     historyList.innerHTML = "";
-    challengeHistory.slice().reverse().forEach(event => {
-      const eventElement = document.createElement("div");
-      eventElement.className = `history-item ${event.result}`;
-      eventElement.innerHTML = `
+    challengeHistory
+      .slice()
+      .reverse()
+      .forEach((event) => {
+        const eventElement = document.createElement("div");
+        eventElement.className = `history-item ${event.result}`;
+        eventElement.innerHTML = `
         <div class="history-header">
           <span class="history-type">${challengeTypes[event.type].name}</span>
-          <span class="history-result ${event.result}">${event.result.toUpperCase()}</span>
+          <span class="history-result ${
+            event.result
+          }">${event.result.toUpperCase()}</span>
         </div>
         <div class="history-details">
           <span class="challenger">${event.initiator}</span>
           <span class="vs">vs</span>
           <span class="target">${event.target}</span>
         </div>
-        <div class="history-time">${new Date(event.createdAt).toLocaleString()}</div>
+        <div class="history-time">${new Date(
+          event.createdAt
+        ).toLocaleString()}</div>
       `;
-      historyList.appendChild(eventElement);
-    });
+        historyList.appendChild(eventElement);
+      });
   }
 
   // Load challenge stats
@@ -578,7 +634,7 @@
     if (!statsGrid) return;
 
     const stats = calculateChallengeStats();
-    
+
     statsGrid.innerHTML = `
       <div class="stat-item">
         <div class="stat-label">TOTAL CHALLENGES</div>
@@ -610,16 +666,22 @@
   // Calculate challenge stats
   function calculateChallengeStats() {
     const total = challengeHistory.length;
-    const victories = challengeHistory.filter(c => c.result === "victory").length;
-    const defeats = challengeHistory.filter(c => c.result === "defeat").length;
+    const victories = challengeHistory.filter(
+      (c) => c.result === "victory"
+    ).length;
+    const defeats = challengeHistory.filter(
+      (c) => c.result === "defeat"
+    ).length;
     const winRate = total > 0 ? Math.round((victories / total) * 100) : 0;
-    
+
     const totalPoints = challengeHistory
-      .filter(c => c.result === "victory")
+      .filter((c) => c.result === "victory")
       .reduce((sum, c) => sum + challengeTypes[c.type].pointsReward, 0);
-    
+
     const currentUser = window.core.user;
-    const avgReputation = currentUser ? (currentUser.reputation || reputationRules.startingReputation) : 0;
+    const avgReputation = currentUser
+      ? currentUser.reputation || reputationRules.startingReputation
+      : 0;
 
     return {
       total,
@@ -627,7 +689,7 @@
       defeats,
       winRate,
       totalPoints,
-      avgReputation
+      avgReputation,
     };
   }
 
@@ -642,13 +704,18 @@
   // Fix corrupted challenges
   function fixCorruptedChallenges() {
     const originalLength = challengeHistory.length;
-    challengeHistory = challengeHistory.filter(challenge => 
-      challenge && challenge.id && challenge.initiator && challenge.target && challenge.type
+    challengeHistory = challengeHistory.filter(
+      (challenge) =>
+        challenge &&
+        challenge.id &&
+        challenge.initiator &&
+        challenge.target &&
+        challenge.type
     );
-    
+
     const fixedCount = originalLength - challengeHistory.length;
     window.ui.addLog(`Fixed ${fixedCount} corrupted challenges`, "info");
-    
+
     loadChallengeHistory();
     loadChallengeStats();
   }
@@ -657,12 +724,12 @@
   function startChallengeCooldown() {
     challengeCooldownActive = true;
     challengeCooldownEndTime = Date.now() + 300000; // 5 minutes
-    
+
     window.ui.addLog("Challenge cooldown started (5 minutes)", "info");
-    
+
     // Update cooldown UI
     updateChallengeCooldownUI();
-    
+
     // Clear cooldown after time expires
     window.core.safeSetTimeout(() => {
       challengeCooldownActive = false;
@@ -680,11 +747,16 @@
     if (challengeCooldownActive) {
       const remaining = Math.max(0, challengeCooldownEndTime - Date.now());
       const progress = Math.max(0, Math.min(100, (remaining / 300000) * 100));
-      
+
       cooldownBar.style.display = "block";
-      cooldownBar.querySelector(".cooldown-progress").style.width = `${progress}%`;
-      cooldownBar.querySelector(".cooldown-text").textContent = 
-        `Challenge Cooldown: ${Math.ceil(remaining / 1000)}s remaining`;
+      cooldownBar.querySelector(
+        ".cooldown-progress"
+      ).style.width = `${progress}%`;
+      cooldownBar.querySelector(
+        ".cooldown-text"
+      ).textContent = `Challenge Cooldown: ${Math.ceil(
+        remaining / 1000
+      )}s remaining`;
     } else {
       cooldownBar.style.display = "none";
     }
@@ -695,7 +767,9 @@
     return {
       active: challengeCooldownActive,
       endTime: challengeCooldownEndTime,
-      remaining: challengeCooldownActive ? Math.max(0, challengeCooldownEndTime - Date.now()) : 0
+      remaining: challengeCooldownActive
+        ? Math.max(0, challengeCooldownEndTime - Date.now())
+        : 0,
     };
   }
 
@@ -730,6 +804,6 @@
     getChallengeHistory,
     getPendingChallenge,
     challengeTypes,
-    reputationRules
+    reputationRules,
   };
 })();

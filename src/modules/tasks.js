@@ -8,61 +8,62 @@ let taskTypes = {
       name: "REACTOR CRITICAL",
       difficulty: 10,
       timeLimit: 300000, // 5 minutes
-      description: "Reactor core temperature critical. Immediate action required."
+      description:
+        "Reactor core temperature critical. Immediate action required.",
     },
     COOLANT_LEAK: {
       name: "COOLANT LEAK",
       difficulty: 8,
       timeLimit: 240000, // 4 minutes
-      description: "Coolant system breach detected. Containment required."
+      description: "Coolant system breach detected. Containment required.",
     },
     POWER_GRID_FAILURE: {
       name: "POWER GRID FAILURE",
       difficulty: 9,
       timeLimit: 180000, // 3 minutes
-      description: "Primary power grid offline. Emergency systems activated."
-    }
+      description: "Primary power grid offline. Emergency systems activated.",
+    },
   },
   CRITICAL: {
     PRESSURE_REGULATION: {
       name: "PRESSURE REGULATION",
       difficulty: 6,
       timeLimit: 300000, // 5 minutes
-      description: "Chamber pressure unstable. Manual regulation needed."
+      description: "Chamber pressure unstable. Manual regulation needed.",
     },
     TEMPERATURE_CONTROL: {
       name: "TEMPERATURE CONTROL",
       difficulty: 5,
       timeLimit: 240000, // 4 minutes
-      description: "Temperature fluctuations detected. Stabilization required."
+      description: "Temperature fluctuations detected. Stabilization required.",
     },
     FLOW_RATE_ADJUSTMENT: {
       name: "FLOW RATE ADJUSTMENT",
       difficulty: 4,
       timeLimit: 180000, // 3 minutes
-      description: "Flow rate outside parameters. Adjustment needed."
-    }
+      description: "Flow rate outside parameters. Adjustment needed.",
+    },
   },
   MAINTENANCE: {
     SYSTEM_CALIBRATION: {
       name: "SYSTEM CALIBRATION",
       difficulty: 3,
       timeLimit: 300000, // 5 minutes
-      description: "System calibration required. Precision adjustment needed."
+      description: "System calibration required. Precision adjustment needed.",
     },
     FILTER_REPLACEMENT: {
       name: "FILTER REPLACEMENT",
       difficulty: 2,
       timeLimit: 240000, // 4 minutes
-      description: "Filter efficiency degraded. Replacement required."
+      description: "Filter efficiency degraded. Replacement required.",
     },
     ROUTINE_CHECK: {
       name: "ROUTINE CHECK",
       difficulty: 1,
       timeLimit: 180000, // 3 minutes
-      description: "Routine system check. Verification required."
-    }
-  }
+      description: "Routine system check. Verification required.",
+    },
+  },
 };
 
 // Show task system
@@ -286,7 +287,7 @@ function loadTasksFromGunDB() {
             completed: task.completed || false,
             failed: task.failed || false,
             parameters: task.parameters || {},
-            forced: task.forced || false
+            forced: task.forced || false,
           };
 
           activeTasks.push(validTask);
@@ -300,7 +301,10 @@ function loadTasksFromGunDB() {
   });
 
   function checkCompletion() {
-    if (tasksProcessed >= totalTasks || Date.now() - loadStartTime > maxLoadTime) {
+    if (
+      tasksProcessed >= totalTasks ||
+      Date.now() - loadStartTime > maxLoadTime
+    ) {
       clearTimeout(loadTimeout);
       completeTaskLoading();
     }
@@ -309,18 +313,20 @@ function loadTasksFromGunDB() {
 
 // Complete task loading process
 function completeTaskLoading() {
-  console.log(`✅ Task loading completed. Loaded ${activeTasks.length} active tasks`);
-  
+  console.log(
+    `✅ Task loading completed. Loaded ${activeTasks.length} active tasks`
+  );
+
   // Remove duplicate tasks
   removeDuplicateTasks();
-  
+
   // Cleanup corrupted tasks
   cleanupCorruptedTasks();
-  
+
   // Update displays
   updateTaskDisplay();
   updateTaskSystemInfo();
-  
+
   // Start task monitoring
   startTaskMonitoring();
 }
@@ -328,7 +334,7 @@ function completeTaskLoading() {
 // Remove duplicate tasks
 function removeDuplicateTasks() {
   const seen = new Set();
-  activeTasks = activeTasks.filter(task => {
+  activeTasks = activeTasks.filter((task) => {
     const key = `${task.name}-${task.type}-${task.createdAt}`;
     if (seen.has(key)) {
       console.log(`Removing duplicate task: ${task.name}`);
@@ -342,7 +348,7 @@ function removeDuplicateTasks() {
 // Cleanup corrupted tasks
 function cleanupCorruptedTasks() {
   const currentTime = Date.now();
-  activeTasks = activeTasks.filter(task => {
+  activeTasks = activeTasks.filter((task) => {
     if (!task.name || !task.type || !task.expiresAt) {
       console.log(`Removing corrupted task: ${task.id}`);
       return false;
@@ -362,7 +368,7 @@ function startTaskSynchronization() {
   // Listen for new tasks
   window.core.taskRef.map().on((task, id) => {
     if (task && !task.completed && !task.failed) {
-      const existingTask = activeTasks.find(t => t.id === id);
+      const existingTask = activeTasks.find((t) => t.id === id);
       if (!existingTask) {
         const newTask = {
           ...task,
@@ -377,7 +383,7 @@ function startTaskSynchronization() {
           completed: task.completed || false,
           failed: task.failed || false,
           parameters: task.parameters || {},
-          forced: task.forced || false
+          forced: task.forced || false,
         };
 
         activeTasks.push(newTask);
@@ -415,7 +421,8 @@ function generateRandomTask() {
   } else {
     category = "MAINTENANCE";
     const maintenanceTasks = Object.keys(taskTypes.MAINTENANCE);
-    taskKey = maintenanceTasks[Math.floor(Math.random() * maintenanceTasks.length)];
+    taskKey =
+      maintenanceTasks[Math.floor(Math.random() * maintenanceTasks.length)];
   }
 
   const task = taskTypes[category][taskKey];
@@ -433,17 +440,17 @@ function generateRandomTask() {
     completed: false,
     failed: false,
     parameters: generateTaskParameters(category, taskKey),
-    forced: false
+    forced: false,
   };
 
   if (window.core.taskRef) {
     window.core.taskRef.get(taskId).put(newTask);
   }
-  
+
   activeTasks.push(newTask);
   updateTaskDisplay();
   showTaskNotification(newTask);
-  
+
   console.log(`🎯 Generated new task: ${newTask.name}`);
 }
 
@@ -463,7 +470,7 @@ function generateTaskParameters(category, taskKey) {
     temperature: Math.random() * 100,
     pressure: Math.random() * 50,
     flowRate: Math.random() * 200,
-    efficiency: Math.random() * 100
+    efficiency: Math.random() * 100,
   };
 
   // Add category-specific parameters
@@ -497,14 +504,14 @@ function updateTaskDisplay() {
 
   taskDisplay.innerHTML = "";
 
-  activeTasks.forEach(task => {
+  activeTasks.forEach((task) => {
     const taskElement = document.createElement("div");
     taskElement.className = `task-item ${task.type.toLowerCase()}`;
-    
+
     const timeRemaining = Math.max(0, task.expiresAt - Date.now());
     const minutes = Math.floor(timeRemaining / 60000);
     const seconds = Math.floor((timeRemaining % 60000) / 1000);
-    
+
     taskElement.innerHTML = `
       <div class="task-header">
         <span class="task-name">${task.name}</span>
@@ -512,13 +519,19 @@ function updateTaskDisplay() {
       </div>
       <div class="task-details">
         <span class="task-difficulty">Difficulty: ${task.difficulty}/10</span>
-        <span class="task-time">Time: ${minutes}:${seconds.toString().padStart(2, '0')}</span>
+        <span class="task-time">Time: ${minutes}:${seconds
+      .toString()
+      .padStart(2, "0")}</span>
       </div>
-      <div class="task-description">${taskTypes[task.type][task.name]?.description || "Task description not available"}</div>
+      <div class="task-description">${
+        taskTypes[task.type][task.name]?.description ||
+        "Task description not available"
+      }</div>
       <div class="task-actions">
-        ${task.assignedTo ? 
-          `<button class="task-btn complete" data-task-id="${task.id}">COMPLETE</button>` :
-          `<button class="task-btn accept" data-task-id="${task.id}">ACCEPT</button>`
+        ${
+          task.assignedTo
+            ? `<button class="task-btn complete" data-task-id="${task.id}">COMPLETE</button>`
+            : `<button class="task-btn accept" data-task-id="${task.id}">ACCEPT</button>`
         }
       </div>
     `;
@@ -566,7 +579,7 @@ function updateStationParametersDisplay() {
     temperature: Math.floor(Math.random() * 100),
     pressure: Math.floor(Math.random() * 50),
     flowRate: Math.floor(Math.random() * 200),
-    efficiency: Math.floor(Math.random() * 100)
+    efficiency: Math.floor(Math.random() * 100),
   };
 
   paramsDisplay.innerHTML = `
@@ -591,7 +604,7 @@ function updateStationParametersDisplay() {
 
 // Accept task
 function acceptTask(taskId) {
-  const task = activeTasks.find(t => t.id === taskId);
+  const task = activeTasks.find((t) => t.id === taskId);
   if (!task) return;
 
   const currentUser = window.core.user;
@@ -601,18 +614,18 @@ function acceptTask(taskId) {
   }
 
   task.assignedTo = currentUser.alias;
-  
+
   if (window.core.taskRef) {
     window.core.taskRef.get(taskId).put(task);
   }
-  
+
   updateTaskDisplay();
   window.ui.addLog(`Task "${task.name}" accepted`, "success");
 }
 
 // Complete task
 function completeTask(taskId) {
-  const task = activeTasks.find(t => t.id === taskId);
+  const task = activeTasks.find((t) => t.id === taskId);
   if (!task) return;
 
   const currentUser = window.core.user;
@@ -622,7 +635,7 @@ function completeTask(taskId) {
   }
 
   const success = calculateTaskSuccess(task);
-  
+
   if (success) {
     task.completed = true;
     awardTaskPoints(task.difficulty * 10);
@@ -639,7 +652,7 @@ function completeTask(taskId) {
   }
 
   // Remove from active tasks
-  activeTasks = activeTasks.filter(t => t.id !== taskId);
+  activeTasks = activeTasks.filter((t) => t.id !== taskId);
   updateTaskDisplay();
   updateTaskSystemInfo();
 }
@@ -650,8 +663,9 @@ function calculateTaskSuccess(task) {
   const timeFactor = Math.max(0, timeRemaining / task.timeLimit);
   const difficultyFactor = (11 - task.difficulty) / 10;
   const randomFactor = Math.random();
-  
-  const successChance = (timeFactor * 0.4 + difficultyFactor * 0.3 + randomFactor * 0.3);
+
+  const successChance =
+    timeFactor * 0.4 + difficultyFactor * 0.3 + randomFactor * 0.3;
   return successChance > 0.5;
 }
 
@@ -660,15 +674,23 @@ function awardTaskPoints(points) {
   const currentUser = window.core.user;
   if (!currentUser) return;
 
-  // Update user points
-  currentUser.points = (currentUser.points || 0) + points;
-  
-  if (window.core.gun) {
-    window.core.gun.user().get('points').put(currentUser.points);
-    window.core.gun.get('leaderboard').get(currentUser.alias).put({
-      points: currentUser.points,
-      level: currentUser.level || 1
-    });
+  // Use unified points update function if available
+  if (window.updateUserPoints) {
+    window.updateUserPoints(points, "task completion");
+  } else {
+    // Fallback to old method
+    currentUser.points = (currentUser.points || 0) + points;
+
+    if (window.core.gun) {
+      window.core.gun.user().get("points").put(currentUser.points);
+      window.core.gun
+        .get("leaderboard")
+        .get(currentUser.alias)
+        .put({
+          points: currentUser.points,
+          level: currentUser.level || 1,
+        });
+    }
   }
 
   window.ui.addLog(`Awarded ${points} points!`, "success");
@@ -679,13 +701,22 @@ function applyTaskEffects(task) {
   // Apply positive effects based on task type
   switch (task.type) {
     case "EMERGENCY":
-      window.ui.addLog("Emergency resolved. Station stability improved.", "success");
+      window.ui.addLog(
+        "Emergency resolved. Station stability improved.",
+        "success"
+      );
       break;
     case "CRITICAL":
-      window.ui.addLog("Critical system stabilized. Performance optimized.", "success");
+      window.ui.addLog(
+        "Critical system stabilized. Performance optimized.",
+        "success"
+      );
       break;
     case "MAINTENANCE":
-      window.ui.addLog("Maintenance completed. System efficiency increased.", "success");
+      window.ui.addLog(
+        "Maintenance completed. System efficiency increased.",
+        "success"
+      );
       break;
   }
 }
@@ -695,13 +726,22 @@ function applyTaskFailureEffects(task) {
   // Apply negative effects based on task type
   switch (task.type) {
     case "EMERGENCY":
-      window.ui.addLog("Emergency failed! Station stability compromised.", "error");
+      window.ui.addLog(
+        "Emergency failed! Station stability compromised.",
+        "error"
+      );
       break;
     case "CRITICAL":
-      window.ui.addLog("Critical failure! System performance degraded.", "error");
+      window.ui.addLog(
+        "Critical failure! System performance degraded.",
+        "error"
+      );
       break;
     case "MAINTENANCE":
-      window.ui.addLog("Maintenance failed! System efficiency decreased.", "error");
+      window.ui.addLog(
+        "Maintenance failed! System efficiency decreased.",
+        "error"
+      );
       break;
   }
 }
@@ -713,13 +753,16 @@ function showTaskNotification(task) {
   notification.innerHTML = `
     <div class="notification-content">
       <h4>NEW TASK: ${task.name}</h4>
-      <p>${taskTypes[task.type][task.name]?.description || "Task description not available"}</p>
+      <p>${
+        taskTypes[task.type][task.name]?.description ||
+        "Task description not available"
+      }</p>
       <button class="notification-btn" onclick="this.parentElement.parentElement.remove()">DISMISS</button>
     </div>
   `;
-  
+
   document.body.appendChild(notification);
-  
+
   // Auto-remove after 10 seconds
   window.core.safeSetTimeout(() => {
     if (notification.parentElement) {
@@ -759,9 +802,9 @@ function showTaskHistory() {
     window.core.safeAddEventListener(closeBtn, "click", () => overlay.remove());
   }
 
-  filterBtns.forEach(btn => {
+  filterBtns.forEach((btn) => {
     window.core.safeAddEventListener(btn, "click", () => {
-      filterBtns.forEach(b => b.classList.remove("active"));
+      filterBtns.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       const filter = btn.getAttribute("data-filter");
       displayTaskHistory([], filter); // TODO: Implement actual history
@@ -775,7 +818,8 @@ function loadTaskHistory() {
   if (!historyList) return;
 
   // TODO: Implement actual history loading from GunDB
-  historyList.innerHTML = '<div class="no-history">No task history available</div>';
+  historyList.innerHTML =
+    '<div class="no-history">No task history available</div>';
 }
 
 // Display task history
@@ -784,7 +828,8 @@ function displayTaskHistory(tasks, filter) {
   if (!historyList) return;
 
   // TODO: Implement actual history display
-  historyList.innerHTML = '<div class="no-history">No task history available</div>';
+  historyList.innerHTML =
+    '<div class="no-history">No task history available</div>';
 }
 
 // Start task monitoring
@@ -792,7 +837,7 @@ function startTaskMonitoring() {
   // Monitor task expiration
   window.core.safeSetInterval(() => {
     const currentTime = Date.now();
-    activeTasks = activeTasks.filter(task => {
+    activeTasks = activeTasks.filter((task) => {
       if (currentTime >= task.expiresAt && !task.completed && !task.failed) {
         task.failed = true;
         if (window.core.taskRef) {
@@ -803,7 +848,7 @@ function startTaskMonitoring() {
       }
       return true;
     });
-    
+
     if (activeTasks.length < 3) {
       updateTaskDisplay();
     }
@@ -815,7 +860,7 @@ function startTaskCleanup() {
   // Cleanup expired tasks periodically
   window.core.safeSetInterval(() => {
     const currentTime = Date.now();
-    activeTasks = activeTasks.filter(task => {
+    activeTasks = activeTasks.filter((task) => {
       return currentTime < task.expiresAt || task.completed || task.failed;
     });
     updateTaskDisplay();
@@ -858,5 +903,5 @@ window.tasks = {
   startTaskCleanup,
   checkParameterAlerts,
   taskTypes,
-  activeTasks
+  activeTasks,
 };
