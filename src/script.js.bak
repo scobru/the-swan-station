@@ -653,6 +653,661 @@ function stopApp() {
 }
 
 function startApp(alias) {
+// Initialize shogun core
+let shogun,
+  gun,
+  user,
+  timerRef,
+  operatorsRef,
+  historyRef,
+  statsRef,
+  chatRef,
+  taskRef,
+  stationParamsRef;
+
+// Global cleanup registry for intervals and listeners
+const cleanupRegistry = {
+  intervals: new Set(),
+  listeners: new Set(),
+  timeouts: new Set(),
+  audioElements: new Set(),
+  profileListeners: new Set(),
+};
+
+// Performance monitoring
+const performanceMonitor = {
+  startTime: Date.now(),
+  memoryUsage: [],
+  errors: [],
+
+  logMemory() {
+    if (performance.memory) {
+      this.memoryUsage.push({
+        timestamp: Date.now(),
+        used: performance.memory.usedJSHeapSize,
+        total: performance.memory.totalJSHeapSize,
+      });
+      if (this.memoryUsage.length > 100) this.memoryUsage.shift();
+    }
+  },
+
+  logError(error) {
+    this.errors.push({
+      timestamp: Date.now(),
+      message: error.message,
+      stack: error.stack,
+    });
+    if (this.errors.length > 50) this.errors.shift();
+  },
+
+  getStats() {
+    return {
+      uptime: Date.now() - this.startTime,
+      memoryUsage:
+        this.memoryUsage.length > 0
+          ? this.memoryUsage[this.memoryUsage.length - 1]
+          : null,
+      errorCount: this.errors.length,
+      activeIntervals: cleanupRegistry.intervals.size,
+      activeTimeouts: cleanupRegistry.timeouts.size,
+    };
+  },
+};
+
+// Cleanup function to prevent memory leaks
+function cleanup() {
+  cleanupRegistry.intervals.forEach(
+    (interval) => interval && clearInterval(interval)
+  );
+  cleanupRegistry.timeouts.forEach(
+    (timeout) => timeout && clearTimeout(timeout)
+  );
+  cleanupRegistry.listeners.forEach((listener) => {
+    if (listener?.element?.removeEventListener) {
+      listener.element.removeEventListener(listener.event, listener.handler);
+    }
+  });
+  cleanupRegistry.audioElements.forEach((audio) => {
+    if (audio?.pause) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  });
+
+  // Also cleanup click sounds
+  [click1, click2].forEach((audio) => {
+    if (audio?.pause) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  });
+
+  cleanupRegistry.intervals.clear();
+  cleanupRegistry.timeouts.clear();
+  cleanupRegistry.listeners.clear();
+  cleanupRegistry.audioElements.clear();
+  cleanupRegistry.profileListeners.clear();
+
+  console.log("🧹 Cleanup completed");
+}
+
+// Safe interval creation with cleanup registration
+function safeSetInterval(callback, delay) {
+  const interval = setInterval(callback, delay);
+  cleanupRegistry.intervals.add(interval);
+  return interval;
+}
+
+// Safe timeout creation with cleanup registration
+function safeSetTimeout(callback, delay) {
+  const timeout = setTimeout(callback, delay);
+  cleanupRegistry.timeouts.add(timeout);
+  return timeout;
+}
+
+// Safe event listener with cleanup registration
+function safeAddEventListener(element, event, handler) {
+  element.addEventListener(event, handler);
+  cleanupRegistry.listeners.add({ element, event, handler });
+}
+
+// Station Parameters System
+let stationParameters = {
+  powerLevel: 85,
+  oxygenLevel: 92,
+  temperature: 22,
+  radiationLevel: 0.15,
+  pressure: 1013,
+  humidity: 45,
+};
+
+// Real parameter effects based on task completion
+const parameterEffects = {
+  // Power-related tasks
+  "POWER GRID STABILIZATION": {
+    success: { powerLevel: 15, temperature: -2 },
+    failure: { powerLevel: -10, temperature: 5 },
+  },
+  "BACKUP POWER TEST": {
+    success: { powerLevel: 8 },
+    failure: { powerLevel: -5 },
+  },
+
+  // Oxygen-related tasks
+  "OXYGEN SYSTEM CALIBRATION": {
+    success: { oxygenLevel: 10, pressure: 5 },
+    failure: { oxygenLevel: -8, pressure: -10 },
+  },
+
+  // Temperature-related tasks
+  "THERMAL REGULATION": {
+    success: { temperature: -5, humidity: -3 },
+    failure: { temperature: 8, humidity: 5 },
+  },
+  "COOLING SYSTEM FAILURE": {
+    success: { temperature: -10, humidity: -5 },
+    failure: { temperature: 15, humidity: 10 },
+  },
+
+  // Radiation-related tasks
+  "RADIATION SHIELD MAINTENANCE": {
+    success: { radiationLevel: -0.1, powerLevel: -2 },
+    failure: { radiationLevel: 0.15, powerLevel: -5 },
+  },
+  "RADIATION LEAK": {
+    success: { radiationLevel: -0.2, oxygenLevel: -5 },
+    failure: { radiationLevel: 0.25, oxygenLevel: -10 },
+  },
+
+  // Pressure-related tasks
+  "PRESSURE SYSTEM BALANCE": {
+    success: { pressure: 20, oxygenLevel: 3 },
+    failure: { pressure: -30, oxygenLevel: -5 },
+  },
+
+  // Humidity-related tasks
+  "HUMIDITY REGULATION": {
+    success: { humidity: 10, temperature: -1 },
+    failure: { humidity: -15, temperature: 3 },
+  },
+
+  // System-wide tasks
+  "SYSTEM DIAGNOSTIC": {
+    success: { powerLevel: 3, oxygenLevel: 2, temperature: -1 },
+    failure: { powerLevel: -2, oxygenLevel: -2, temperature: 2 },
+  },
+  "COMMUNICATION TEST": {
+    success: { powerLevel: 2 },
+    failure: { powerLevel: -3 },
+  },
+  "SENSOR CALIBRATION": {
+    success: { temperature: -2, pressure: 5, humidity: 3 },
+    failure: { temperature: 3, pressure: -8, humidity: -5 },
+  },
+};
+
+// Parameter interdependencies (realistic relationships)
+const parameterInterdependencies = {
+  // Power affects other systems
+  powerLevel: {
+    affects: {
+      oxygenLevel: 0.1, // Power affects oxygen generation
+      temperature: 0.05, // Power affects cooling
+      pressure: 0.02, // Power affects pressure systems
+    },
+  },
+
+  // Temperature affects other parameters
+  temperature: {
+    affects: {
+      humidity: 0.3, // Higher temp = higher humidity
+      pressure: 0.1, // Higher temp = higher pressure
+      oxygenLevel: -0.05, // Higher temp = lower oxygen efficiency
+    },
+  },
+
+  // Pressure affects other systems
+  pressure: {
+    affects: {
+      oxygenLevel: 0.2, // Pressure affects oxygen distribution
+      humidity: 0.1, // Pressure affects humidity
+    },
+  },
+
+  // Radiation affects other systems
+  radiationLevel: {
+    affects: {
+      powerLevel: -0.1, // Radiation damages power systems
+      oxygenLevel: -0.05, // Radiation affects oxygen systems
+      temperature: 0.02, // Radiation increases temperature
+    },
+  },
+};
+
+// Task System
+let activeTasks = [];
+let taskHistory = [];
+let lastTaskCheck = Date.now();
+let taskCheckInterval = null;
+
+// Real-world API data sources for unpredictability
+const apiEndpoints = {
+  weather:
+    "https://api.openweathermap.org/data/2.5/weather?q=London&appid=demo&units=metric",
+  solarActivity: "https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY",
+  bitcoinPrice:
+    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
+  earthquakeData:
+    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson",
+  spaceWeather: "https://services.swpc.noaa.gov/json/solar_wind_speed.json",
+};
+
+// Task types with different difficulty levels
+const taskTypes = {
+  CRITICAL: {
+    powerBalance: {
+      name: "POWER GRID STABILIZATION",
+      difficulty: 3,
+      timeLimit: 300000,
+    },
+    oxygenRegulation: {
+      name: "OXYGEN SYSTEM CALIBRATION",
+      difficulty: 2,
+      timeLimit: 240000,
+    },
+    temperatureControl: {
+      name: "THERMAL REGULATION",
+      difficulty: 2,
+      timeLimit: 180000,
+    },
+    radiationShield: {
+      name: "RADIATION SHIELD MAINTENANCE",
+      difficulty: 4,
+      timeLimit: 420000,
+    },
+    pressureStabilization: {
+      name: "PRESSURE SYSTEM BALANCE",
+      difficulty: 3,
+      timeLimit: 300000,
+    },
+    humidityControl: {
+      name: "HUMIDITY REGULATION",
+      difficulty: 1,
+      timeLimit: 120000,
+    },
+  },
+  MAINTENANCE: {
+    systemCheck: { name: "SYSTEM DIAGNOSTIC", difficulty: 1, timeLimit: 60000 },
+    backupPower: {
+      name: "BACKUP POWER TEST",
+      difficulty: 2,
+      timeLimit: 120000,
+    },
+    communicationTest: {
+      name: "COMMUNICATION TEST",
+      difficulty: 1,
+      timeLimit: 90000,
+    },
+    sensorCalibration: {
+      name: "SENSOR CALIBRATION",
+      difficulty: 2,
+      timeLimit: 150000,
+    },
+  },
+  EMERGENCY: {
+    containmentBreach: {
+      name: "CONTAINMENT BREACH",
+      difficulty: 5,
+      timeLimit: 600000,
+    },
+    powerSurge: {
+      name: "POWER SURGE DETECTED",
+      difficulty: 4,
+      timeLimit: 300000,
+    },
+    radiationLeak: { name: "RADIATION LEAK", difficulty: 5, timeLimit: 480000 },
+    systemOverload: {
+      name: "SYSTEM OVERLOAD",
+      difficulty: 4,
+      timeLimit: 360000,
+    },
+  },
+};
+
+// Random events that can affect station parameters
+const randomEvents = [
+  {
+    name: "SOLAR FLARE DETECTED",
+    effect: { radiationLevel: 0.3, powerLevel: -10 },
+  },
+  { name: "METEOROID IMPACT", effect: { pressure: -50, temperature: 5 } },
+  {
+    name: "EQUIPMENT MALFUNCTION",
+    effect: { powerLevel: -15, oxygenLevel: -5 },
+  },
+  { name: "ATMOSPHERIC DISTURBANCE", effect: { pressure: 30, humidity: 20 } },
+  { name: "ENERGY SURGE", effect: { powerLevel: 20, temperature: 8 } },
+  {
+    name: "COOLING SYSTEM FAILURE",
+    effect: { temperature: 15, humidity: -10 },
+  },
+  { name: "OXYGEN LEAK", effect: { oxygenLevel: -15, pressure: -20 } },
+  { name: "RADIATION SPIKE", effect: { radiationLevel: 0.25, powerLevel: -5 } },
+];
+
+async function initializeShogun() {
+  try {
+    // Show loading state
+    document.title = "INITIALIZING SWAN STATION...";
+
+    // Add error boundary for unhandled errors
+    window.addEventListener("error", (event) => {
+      console.error("Unhandled error:", event.error);
+      performanceMonitor.logError(event.error);
+      addLog(`CRITICAL ERROR: ${event.error.message}`, "error");
+
+      // Prevent app crash by showing error state
+      document.title = "SWAN STATION - ERROR";
+      updateConnectionStatus("SYSTEM ERROR", "error");
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      console.error("Unhandled promise rejection:", event.reason);
+      performanceMonitor.logError(new Error(event.reason));
+      addLog(`CRITICAL ERROR: Promise rejected - ${event.reason}`, "error");
+
+      // Prevent app crash
+      event.preventDefault();
+    });
+
+    // Start performance monitoring
+    safeSetInterval(() => {
+      performanceMonitor.logMemory();
+
+      // Log performance stats every 5 minutes
+      const stats = performanceMonitor.getStats();
+      if (stats.errorCount > 10) {
+        console.warn("High error count detected:", stats.errorCount);
+      }
+    }, 300000); // Every 5 minutes
+
+    // Initialize Shogun Core
+    shogun = await window.SHOGUN_CORE({
+      peers: [
+        "https://relay.shogun-eco.xyz/gun",
+        "https://peer.wallie.io/gun",
+        "https://gun-manhattan.herokuapp.com/gun",
+      ],
+      localStorage: true,
+      radisk: true,
+      scope: "shogun/swan-station",
+      web3: { enabled: false },
+      webauthn: { enabled: false },
+      nostr: { enabled: false },
+      oauth: { enabled: false },
+      plugins: {
+        autoRegister: [],
+      },
+      timeouts: {
+        login: 30000,
+        signup: 30000,
+        operation: 60000,
+      },
+    });
+
+    await shogun.initialize();
+
+    console.log("shogun initialized");
+    console.log("shogun", shogun);
+
+    // Get GunDB instance and user from shogun-core
+    gun = shogun.db.gun;
+    user = shogun.db.gun.user().recall({ sessionStorage: true });
+
+    // Update title and connection status
+    document.title = "SWAN STATION - CONNECTED";
+    updateConnectionStatus("CONNECTED", "connected");
+
+    // Show contribution indicator
+    const contributionIndicator = document.getElementById(
+      "contributionIndicator"
+    );
+    if (contributionIndicator) {
+      contributionIndicator.textContent = "CONTRIBUTING TO NETWORK";
+      contributionIndicator.style.display = "block";
+    }
+
+    // Initialize GunDB references
+    timerRef = gun.get("swan").get("timer");
+    operatorsRef = gun.get("swan").get("operators");
+    historyRef = gun.get("swan").get("history");
+    statsRef = gun.get("swan").get("stats");
+    chatRef = gun.get("swan").get("chat");
+    taskRef = gun.get("swan").get("tasks");
+    stationParamsRef = gun.get("swan").get("stationParams");
+
+    console.log("Shogun Core initialized successfully");
+
+    // Setup Shogun Core event listeners
+    shogun.on("auth:login", (data) => {
+      console.log("Authentication successful for:", data.username);
+      const overlay = document.querySelector(".overlay");
+      if (overlay) overlay.remove();
+    });
+
+    shogun.on("auth:logout", () => {
+      console.log("User logged out");
+      showAuthPrompt();
+    });
+
+    // Setup timer listener after initialization
+    setupTimerListener();
+
+    // Initialize the system after shogun-core is ready
+    initializeSystem();
+
+    // Ensure timer is visible and initialized
+    safeSetTimeout(() => {
+      if (bigTimer) {
+        console.log("Timer element found:", bigTimer);
+        console.log("Timer current value:", bigTimer.textContent);
+        console.log(
+          "Timer visibility:",
+          window.getComputedStyle(bigTimer).display
+        );
+
+        // Force timer to be visible
+        bigTimer.style.display = "block";
+        bigTimer.style.visibility = "visible";
+        bigTimer.style.opacity = "1";
+        bigTimer.style.position = "relative";
+        bigTimer.style.zIndex = "100";
+
+        // Set initial value if empty
+        if (!bigTimer.textContent || bigTimer.textContent === "108") {
+          bigTimer.textContent = "108";
+          console.log("Timer initialized to 108");
+        }
+
+        // Add a test message to verify timer is working
+        addLog("Timer system initialized - countdown active");
+      } else {
+        console.error("Timer element not found!");
+        addLog("ERROR: Timer element not found!", "error");
+      }
+    }, 1000);
+
+    // Initialize task system
+    initializeTaskSystem();
+
+    // Clean up corrupted tasks
+    safeSetTimeout(() => {
+      cleanupCorruptedTasks();
+    }, 2000);
+
+    // Check if user is already logged in
+    if (shogun.isLoggedIn()) {
+      console.log("User already logged in");
+      const userPub = user.is.pub;
+      const alias = await getUserAlias(userPub);
+      if (alias) {
+        startApp(alias);
+      } else {
+        showAuthPrompt();
+      }
+    } else {
+      showAuthPrompt();
+    }
+  } catch (error) {
+    console.error("Failed to initialize Shogun Core:", error);
+    performanceMonitor.logError(error);
+    document.title = "SWAN STATION - CONNECTION ERROR";
+    updateConnectionStatus("CONNECTION ERROR", "error");
+    addLog("CRITICAL: Connection to station network failed", "error");
+
+    // Retry initialization after 5 seconds
+    setTimeout(() => {
+      addLog("Attempting to reconnect to station network...", "info");
+      initializeShogun();
+    }, 5000);
+  }
+}
+
+// Helper function to get user alias from GunDB
+async function getUserAlias(userPub) {
+  return new Promise((resolve) => {
+    gun
+      .get("users")
+      .get(userPub)
+      .get("alias")
+      .once((alias) => {
+        resolve(alias);
+      });
+  });
+}
+
+// Audio setup - preload sounds with error handling and cleanup registration
+const siren = new Audio("assets/siren.mp3");
+const reset = new Audio("assets/reset.mp3");
+const tick = new Audio("assets/tick.mp3");
+const task = new Audio("assets/task.mp3");
+const click1 = new Audio("assets/click.mp3");
+const click2 = new Audio("assets/click2.mp3");
+
+// Make task audio globally available
+window.task = task;
+
+[siren, reset, tick, task, click1, click2].forEach((audio) => {
+  cleanupRegistry.audioElements.add(audio);
+  audio.addEventListener("error", (e) => {
+    console.warn("Audio loading failed:", e.target.src);
+    addLog(`WARNING: Audio file failed to load: ${e.target.src}`, "warning");
+  });
+  audio.addEventListener("loadstart", () => {
+    console.log("Audio loading started:", audio.src);
+  });
+  audio.addEventListener("canplaythrough", () => {
+    console.log("Audio loaded successfully:", audio.src);
+  });
+});
+
+const buttonSounds = Array.from({ length: 8 }, (_, i) => {
+  const audio = new Audio(`assets/typing_sounds/button${i + 1}.mp3`);
+  audio.preload = "auto";
+  cleanupRegistry.audioElements.add(audio);
+  audio.addEventListener("error", (e) =>
+    console.warn("Button sound loading failed:", e.target.src)
+  );
+  return audio;
+});
+
+// DOM elements
+const container = document.querySelector(".container");
+const input = document.querySelector("input");
+const logContainer = document.getElementById("logContainer");
+const statsContainer = document.getElementById("statsContainer");
+const bigTimer = document.getElementById("bigTimer");
+
+// App state
+let focusInterval = null;
+let decrementInterval = null;
+let currentUser = null; // Will hold alias, points, level, etc.
+let stats = { failures: 0, worlds: 0, resets: 0 };
+// Timer is now fetched from GunDB, not hardcoded.
+document.title = "SYNCING...";
+
+// BALANCED LEVELING SYSTEM - More accessible progression
+// Updated to provide better early-game experience and smoother progression
+const levels = {
+  1: 0, // Starting level (no points required)
+  2: 15, // Very accessible early progression
+  3: 35, // Easy to reach
+  4: 60, // Smooth progression
+  5: 90, // Early game milestone
+  6: 130, // Challenge begins
+  7: 180, // Mid-game entry
+  8: 240, // Advanced play
+  9: 310, // Expert level
+  10: 390, // Master level
+  11: 480, // Elite level
+  12: 580, // Legendary
+  13: 690, // Mythic
+  14: 810, // Transcendent
+  15: 940, // Divine
+  16: 1080, // Immortal
+  17: 1230, // Eternal
+  18: 1390, // Cosmic
+  19: 1560, // Universal
+  20: 1740, // Multiversal
+  21: 1930, // Omniversal
+  22: 2130, // Absolute
+  23: 2340, // Infinite
+  24: 2560, // Ultimate
+  25: 2790, // Supreme
+  26: 3030, // Transcendent Master
+  27: 3280, // Divine Master
+  28: 3540, // Immortal Master
+  29: 3810, // Eternal Master
+  30: 4090, // Cosmic Master
+};
+
+function getLevelFromPoints(points) {
+  let level = 1;
+  for (const lvl in levels) {
+    if (points >= levels[lvl]) {
+      level = parseInt(lvl, 10);
+    } else {
+      break;
+    }
+  }
+  return level;
+}
+
+function stopApp() {
+  if (focusInterval) {
+    clearInterval(focusInterval);
+    cleanupRegistry.intervals.delete(focusInterval);
+  }
+  focusInterval = null;
+
+  // Clear any pending timeouts
+  if (window.appStartTimeout) {
+    clearTimeout(window.appStartTimeout);
+    window.appStartTimeout = null;
+  }
+  if (window.profileTimeout) {
+    clearTimeout(window.profileTimeout);
+    window.profileTimeout = null;
+  }
+  if (window.profileListenerTimeout) {
+    clearTimeout(window.profileListenerTimeout);
+    window.profileListenerTimeout = null;
+  }
+
+  console.log("App UI focus paused and timeouts cleared.");
+}
+
+function startApp(alias) {
   stopApp(); // Prevent duplicate intervals
   console.log(`Operator ${alias} is active. App resumed.`);
   currentUser = {
@@ -9579,3 +10234,36 @@ function loadChallengeCooldownFromGunDB() {
     }
   });
 }
+
+// Swan Autobattler Game Integration
+function showSwanAutobattler() {
+  // Clean up any existing game overlays
+  cleanup();
+  
+  // Initialize the Swan autobattler game
+  if (typeof initSwanAutobattler === 'function') {
+    initSwanAutobattler();
+    console.log("🦢 Swan Autobattler game started");
+    addLog("🦢 Swan Autobattler game launched", "info");
+  } else {
+    console.error("Swan autobattler game not loaded");
+    addLog("Error: Swan autobattler game not available", "error");
+  }
+}
+
+// Add Swan Autobattler to the menu
+function addSwanAutobattlerToMenu() {
+  const menuContainer = document.querySelector('.menu-container');
+  if (menuContainer) {
+    const swanButton = document.createElement('button');
+    swanButton.className = 'menu-button swan-autobattler-btn';
+    swanButton.innerHTML = '🦢 Swan Autobattler';
+    swanButton.onclick = showSwanAutobattler;
+    menuContainer.appendChild(swanButton);
+  }
+}
+
+// Initialize Swan Autobattler when the system is ready
+safeSetTimeout(() => {
+  addSwanAutobattlerToMenu();
+}, 2000);

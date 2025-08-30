@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Module Loading Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #000;
+            color: #00ff00;
+            padding: 20px;
+        }
+
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #00ff00;
+        }
+
+        .success {
+            color: #00ff00;
+        }
+
+        .error {
+            color: #ff0000;
+        }
+
+        .warning {
+            color: #ffff00;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Module Loading Test</h1>
+    <div id="results"></div>
+
+    <script>
+        function addResult(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            results.appendChild(div);
+        }
+
+        // Test for duplicate function declarations
+        function testForDuplicates() {
+            addResult('Testing for duplicate function declarations...', 'info');
+
+            // Check if reset function exists multiple times
+            const resetFunctions = [];
+            for (let key in window) {
+                if (typeof window[key] === 'function' && key.includes('reset')) {
+                    resetFunctions.push(key);
+                }
+            }
+
+            if (resetFunctions.length > 1) {
+                addResult(`Warning: Multiple reset functions found: ${resetFunctions.join(', ')}`, 'warning');
+            } else {
+                addResult('✅ No duplicate reset functions detected', 'success');
+            }
+
+            // Check if tick function exists multiple times
+            const tickFunctions = [];
+            for (let key in window) {
+                if (typeof window[key] === 'function' && key.includes('tick')) {
+                    tickFunctions.push(key);
+                }
+            }
+
+            if (tickFunctions.length > 1) {
+                addResult(`Warning: Multiple tick functions found: ${tickFunctions.join(', ')}`, 'warning');
+            } else {
+                addResult('✅ No duplicate tick functions detected', 'success');
+            }
+        }
+
+        // Test module availability
+        function testModules() {
+            addResult('Testing module availability...', 'info');
+
+            const requiredModules = ['core', 'ui', 'timer', 'main'];
+
+            requiredModules.forEach(module => {
+                if (window[module]) {
+                    addResult(`✅ Module ${module} is available`, 'success');
+                } else {
+                    addResult(`❌ Module ${module} is missing`, 'error');
+                }
+            });
+        }
+
+        // Test UI functions
+        function testUIFunctions() {
+            addResult('Testing UI functions...', 'info');
+
+            if (window.ui) {
+                const requiredFunctions = ['addLog', 'updateConnectionStatus', 'uiReset'];
+
+                requiredFunctions.forEach(func => {
+                    if (typeof window.ui[func] === 'function') {
+                        addResult(`✅ UI function ${func} is available`, 'success');
+                    } else {
+                        addResult(`❌ UI function ${func} is missing`, 'error');
+                    }
+                });
+            } else {
+                addResult('❌ UI module not available', 'error');
+            }
+        }
+
+        // Test timer functions
+        function testTimerFunctions() {
+            addResult('Testing timer functions...', 'info');
+
+            if (window.timer) {
+                const requiredFunctions = ['initializeTimer', 'updateTimer', 'resetTimer'];
+
+                requiredFunctions.forEach(func => {
+                    if (typeof window.timer[func] === 'function') {
+                        addResult(`✅ Timer function ${func} is available`, 'success');
+                    } else {
+                        addResult(`❌ Timer function ${func} is missing`, 'error');
+                    }
+                });
+            } else {
+                addResult('❌ Timer module not available', 'error');
+            }
+        }
+
+        // Run tests after a delay to allow modules to load
+        setTimeout(() => {
+            addResult('Starting module tests...', 'info');
+            testForDuplicates();
+            testModules();
+            testUIFunctions();
+            testTimerFunctions();
+            addResult('Tests completed!', 'info');
+        }, 3000);
+    </script>
+
+    <!-- Load the modules -->
+    <script src="src/modules/loader.js"></script>
+</body>
+
+</html>
